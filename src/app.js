@@ -80,7 +80,7 @@ async function loadFile(file) {
     }
     const json = parseJson(text);
     if (!json.meta_data && !json.GameProgress && !json.Skills) throw new Error('This JSON file does not look like a Dragonwilds character save.');
-    state.char = { json, root: json.GameProgress ?? json };
+    state.char = { json, root: json.GameProgress ?? json, loadedName: json.meta_data?.char_name ?? null };
     state.kind = 'character';
     state.tab = 'character';
   }
@@ -96,15 +96,25 @@ function buildOutput() {
   return new TextEncoder().encode(text);
 }
 
+// Characters are stored as "<char_name>.json", so the download follows the current name.
+function outputFileName() {
+  const name = state.kind === 'character' ? state.char.json.meta_data?.char_name : null;
+  return name ? name + '.json' : state.fileName;
+}
+
+// Characters that can't appear in a Windows file name.
+const BAD_FILE_CHARS = /[<>:"/\\|?*\x00-\x1f]/;
+
 function download() {
   const bytes = buildOutput();
+  const name = outputFileName();
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
-  const a = h('a', { href: url, download: state.fileName });
+  const a = h('a', { href: url, download: name });
   document.body.append(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
-  toast('Downloaded ' + state.fileName + ' (' + fmtBytes(bytes.length) + ')', 'ok');
+  toast('Downloaded ' + name + ' (' + fmtBytes(bytes.length) + ')', 'ok');
 }
 
 function reset() {
@@ -133,8 +143,10 @@ const CHAR_TABS = [
 ];
 
 function updateBar() {
+  const out = outputFileName();
   $('#file-name').textContent = state.fileName;
-  $('#file-meta').textContent = (state.kind === 'world' ? 'World save' : 'Character save') + ' · ' + fmtBytes(state.original.length);
+  $('#file-meta').textContent = (state.kind === 'world' ? 'World save' : 'Character save') + ' · ' + fmtBytes(state.original.length) +
+    (out !== state.fileName ? ' · downloads as ' + out : '');
   $('#dirty').textContent = state.dirty ? state.dirty + ' change' + (state.dirty === 1 ? '' : 's') + ' not yet downloaded' : 'No changes yet';
   $('#dirty').classList.toggle('has', !!state.dirty);
 }
@@ -666,13 +678,25 @@ function viewCharacter() {
   const vital = (label, obj, key) => obj && key in obj
     ? field(label, numberInput(num(obj[key]), guard(v => { obj[key] = v; changed(label + ' updated'); }), { min: '0' }))
     : null;
+  const oldName = state.char.loadedName;
+  const renamed = oldName && j.meta_data?.char_name !== oldName;
   return h('div', { class: 'stack' },
     card('Character', null,
+      renamed ? h('p', { class: 'note' },
+        'Renamed: this character now downloads as ', h('strong', {}, outputFileName()),
+        '. After copying it into SaveCharacters, delete ', h('strong', {}, oldName + '.json'),
+        ' and ', h('strong', {}, oldName + '.json.backup'),
+        ' from that folder. Both files are the same character, so leaving the old one may show it twice in game.') : null,
       h('div', { class: 'grid' },
         j.meta_data ? field('Name', textInput(j.meta_data.char_name ?? '', guard(v => {
-          if (!v.trim()) throw new Error('Name cannot be empty');
-          j.meta_data.char_name = v; changed('Name updated');
-        })), 'Display name. The file name stays the same.') : null,
+          const name = v.trim();
+          if (!name) throw new Error('Name cannot be empty');
+          if (BAD_FILE_CHARS.test(name) || /\.$/.test(name)) throw new Error('Names cannot contain < > : " / \\ | ? * or end with a dot');
+          if (name === j.meta_data.char_name) return;
+          j.meta_data.char_name = name;
+          changed('Name updated. Downloads as ' + outputFileName());
+          render();
+        })), 'The downloaded file is named after the character, as the game expects.') : null,
         j.Hardcore || r.Hardcore ? field('Hardcore', h('input', {
           type: 'checkbox', checked: !!(j.Hardcore ?? r.Hardcore).IsHardcore,
           onchange: e => { (j.Hardcore ?? r.Hardcore).IsHardcore = e.target.checked; changed('Hardcore ' + (e.target.checked ? 'on' : 'off')); },
@@ -741,7 +765,7 @@ function viewRaw() {
   return card('Raw JSON', 'The full character file. Saving re-checks the JSON before applying it.',
     jsonEditor(text, out => {
       const json = parseJson(out);
-      state.char = { json, root: json.GameProgress ?? json };
+      state.char = { json, root: json.GameProgress ?? json, loadedName: state.char.loadedName };
       changed('Raw JSON applied');
     }));
 }
