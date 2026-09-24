@@ -286,49 +286,111 @@ function modeOptions(current) {
 function viewDifficulty() {
   const w = state.world;
   const current = new Map(w.difficulty().map(d => [d.tag, d.value]));
-  const known = [...DIFFICULTY_TAGS];
-  for (const tag of current.keys()) if (!known.some(k => k.tag === tag)) known.push({ tag, group: 'Other', kind: 'scale', def: 1 });
-
-  const draft = new Map(current);
+  const known = DIFFICULTY_TAGS.map(k => ({ ...k, group: k.group === 'AI' ? 'Environment' : k.group }));
+  // Settings in the file that this game version no longer defines are kept.
+  for (const tag of current.keys()) {
+    if (!known.some(k => k.tag === tag)) known.push({ tag, label: prettyTag(tag), group: 'Other', kind: 'scale', def: 1, min: 0, max: 100, step: 0.1, presets: {} });
+  }
   const mode = w.headerValue('SurvivalDifficulty');
+  const draft = new Map(current);
+  const controls = new Map(); // tag -> { toggle, input }
 
-  const groups = [...new Set(known.map(k => k.group))];
-  const table = h('div', { class: 'diff-groups' }, groups.map(g =>
-    h('fieldset', { class: 'diff-group' }, h('legend', {}, g),
-      known.filter(k => k.group === g).map(k => {
-        const on = draft.has(k.tag);
-        const val = on ? draft.get(k.tag) : k.def;
-        const valueEl = k.kind === 'bool'
-          ? h('input', { type: 'checkbox', checked: val >= 0.5, disabled: !on, onchange: e => draft.set(k.tag, e.target.checked ? 1 : 0) })
-          : h('input', { type: 'number', step: '0.05', min: '0', value: fmtNum(val), disabled: !on, onchange: e => draft.set(k.tag, Number(e.target.value)) });
-        const toggle = h('input', {
-          type: 'checkbox', checked: on, 'aria-label': 'Override ' + k.tag,
-          onchange: e => {
-            if (e.target.checked) draft.set(k.tag, k.kind === 'bool' ? (valueEl.checked ? 1 : 0) : Number(valueEl.value));
-            else draft.delete(k.tag);
-            valueEl.disabled = !e.target.checked;
-          },
-        });
-        return h('div', { class: 'diff-row' + (on ? ' on' : '') }, toggle, h('span', { class: 'diff-name', title: k.tag }, k.label ?? prettyTag(k.tag)), valueEl);
-      }))));
+  const clampCheck = (k, v) => {
+    if (k.kind === 'bool') return v ? 1 : 0;
+    if (!Number.isFinite(v)) throw new Error(k.label + ' needs a number');
+    if (k.kind === 'int' && !Number.isInteger(v)) throw new Error(k.label + ' must be a whole number');
+    if (v < k.min || v > k.max) throw new Error(k.label + ' must be between ' + k.min + ' and ' + k.max);
+    return v;
+  };
+
+  const valueControl = k => {
+    const on = draft.has(k.tag);
+    const val = on ? draft.get(k.tag) : k.def;
+    const input = k.kind === 'bool'
+      ? h('input', { type: 'checkbox', checked: val >= 0.5, disabled: !on, 'aria-label': k.label })
+      : h('input', { type: 'number', min: k.min, max: k.max, step: k.step, value: fmtNum(val), disabled: !on, 'aria-label': k.label });
+    input.addEventListener('change', () => draft.set(k.tag, k.kind === 'bool' ? (input.checked ? 1 : 0) : Number(input.value)));
+    const toggle = h('input', {
+      type: 'checkbox', checked: on, 'aria-label': 'Override ' + k.label,
+      onchange: e => {
+        if (e.target.checked) draft.set(k.tag, k.kind === 'bool' ? (input.checked ? 1 : 0) : Number(input.value));
+        else draft.delete(k.tag);
+        input.disabled = !e.target.checked;
+        e.target.closest('.diff-row, .ai-cell')?.classList.toggle('on', e.target.checked);
+      },
+    });
+    controls.set(k.tag, { toggle, input });
+    return { toggle, input, on };
+  };
+
+  const range = k => (k.kind === 'bool' ? 'On/off' : k.min + ' to ' + k.max + (k.kind === 'int' ? '' : ' (default ' + k.def + ')'));
+  const row = k => {
+    const { toggle, input, on } = valueControl(k);
+    return h('div', { class: 'diff-row' + (on ? ' on' : ''), title: k.tag },
+      toggle,
+      h('span', { class: 'diff-name' }, k.label, h('small', {}, (k.desc ? k.desc + ' · ' : '') + range(k))),
+      input);
+  };
+
+  const groupOrder = [...new Set(known.map(k => k.group))].filter(g => !g.startsWith('AI / '));
+  const plain = groupOrder.map(g => h('fieldset', { class: 'diff-group' }, h('legend', {}, g), known.filter(k => k.group === g).map(row)));
+
+  // Enemy settings: one row per creature type, one column per stat.
+  const aiGroups = [...new Set(known.filter(k => k.group.startsWith('AI / ')).map(k => k.group))];
+  const stats = ['Health', 'Damage', 'Resistances'];
+  const aiTable = aiGroups.length ? h('fieldset', { class: 'diff-group wide' }, h('legend', {}, 'Enemies'),
+    h('p', { class: 'hint' }, 'Scales from 0.5 to 3. Tick a value to override it.'),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'ai-table' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Enemy'), stats.map(s => h('th', {}, s)))),
+      h('tbody', {}, aiGroups.map(g => h('tr', {},
+        h('th', { scope: 'row' }, g.replace('AI / ', '')),
+        stats.map(s => {
+          const k = known.find(x => x.group === g && x.tag.endsWith('.' + s));
+          if (!k) return h('td', {}, '—');
+          const { toggle, input, on } = valueControl(k);
+          return h('td', { class: 'ai-cell' + (on ? ' on' : ''), title: k.tag }, h('label', { class: 'inline' }, toggle, input));
+        }))))))) : null;
+
+  // Fill the draft from one of the game's presets: only settings that differ from Normal are ticked.
+  const applyPreset = name => {
+    draft.clear();
+    for (const k of known) {
+      const v = k.presets?.[name];
+      if (v != null && v !== k.def) draft.set(k.tag, v);
+    }
+    for (const k of known) {
+      const c = controls.get(k.tag);
+      if (!c) continue;
+      const on = draft.has(k.tag);
+      const val = on ? draft.get(k.tag) : k.def;
+      c.toggle.checked = on;
+      c.input.disabled = !on;
+      if (k.kind === 'bool') c.input.checked = val >= 0.5; else c.input.value = fmtNum(val);
+      c.toggle.closest('.diff-row, .ai-cell')?.classList.toggle('on', on);
+    }
+    toast('Filled from the ' + name + ' preset. Adjust anything, then apply.', 'info');
+  };
 
   const switchMode = h('input', { type: 'checkbox', checked: mode !== 3 });
   return h('div', { class: 'stack' },
-    card('Custom difficulty', 'Tick a setting to override it. Scales: 1 = normal, 0.5 = half, 2 = double. Unticked settings use the game default.',
-      mode !== 3 ? h('p', { class: 'note' }, 'This world is not in Custom mode, so the game may ignore these values. ', h('label', { class: 'inline' }, switchMode, ' Switch the world to Custom when applying')) : null,
-      table,
+    card('Custom difficulty', 'Tick a setting to override it; unticked settings use the game default. Ranges and presets come from the game\'s own data.',
+      mode !== 3 ? h('p', { class: 'note' }, 'This world is in ' + (DIFFICULTY_MODES[mode] ?? 'another') + ' mode, so the game ignores these values. ',
+        h('label', { class: 'inline' }, switchMode, ' Switch the world to Custom when applying')) : null,
+      h('div', { class: 'inline-form preset-bar' }, h('span', {}, 'Start from a preset:'),
+        ['Normal', 'Hard', 'Creative'].map(n => h('button', { type: 'button', onclick: () => applyPreset(n) }, n))),
+      h('div', { class: 'diff-groups' }, plain),
+      aiTable,
       h('div', { class: 'actions' },
         h('button', {
           class: 'primary',
           onclick: guard(() => {
-            const list = known.filter(k => draft.has(k.tag)).map(k => ({ tag: k.tag, value: draft.get(k.tag) }));
-            for (const d of list) if (!Number.isFinite(d.value) || d.value < 0) throw new Error(prettyTag(d.tag) + ' needs a number of 0 or more');
+            const list = known.filter(k => draft.has(k.tag)).map(k => ({ tag: k.tag, value: clampCheck(k, draft.get(k.tag)) }));
             w.setDifficulty(list);
             if (mode !== 3 && switchMode.checked && list.length) {
               w.setHeaderValue('SurvivalDifficulty', 3);
               w.setSetting('SurvivalDifficulty', 3);
             }
-            changed('Difficulty applied (' + list.length + ' settings)');
+            changed('Difficulty applied (' + list.length + ' setting' + (list.length === 1 ? '' : 's') + ')');
             render();
           }),
         }, 'Apply difficulty'),
@@ -795,17 +857,19 @@ const BAG_PAGES = [
   { name: 'Ammo', start: 56 },
   { name: 'Quest items', start: 80 },
 ];
+// ELoadoutSlot values from the game executable.
 const LOADOUT = [
   { key: '0', label: 'Head' },
   { key: '1', label: 'Body' },
   { key: '2', label: 'Legs' },
   { key: '3', label: 'Cape' },
-  { key: '4', label: 'Amulet' },
+  { key: '4', label: 'Trinket' },
   { key: '7', label: 'Main hand', ref: true },
   { key: '8', label: 'Off hand', ref: true },
   { key: '5', label: 'Arrows', ref: true },
-  { key: '9', label: 'Bolts', ref: true },
-  { key: '6', label: 'Rune', ref: true },
+  { key: '9', label: 'Crossbow bolts', ref: true },
+  { key: '6', label: 'Magic ammo (runes)', ref: true },
+  { key: '10', label: 'Fishing bait', ref: true },
 ];
 
 const bagUi = { view: 'Inventory', page: 0, sel: null };
@@ -1033,7 +1097,7 @@ function loadoutView(r, templates, commit) {
 
   return h('div', { class: 'bag-layout' },
     h('div', { class: 'stack' },
-      card('Armour', 'Worn items are stored here directly.', h('div', { class: 'equip-row' }, armour)),
+      card('Worn', 'Armour and trinket are stored here directly.', h('div', { class: 'equip-row' }, armour)),
       card('Hands and ammo', 'These point at items in the backpack. Moving items in the backpack keeps these links correct.', h('div', { class: 'grid' }, refs)),
       extra.length ? card('Other loadout slots', null, h('ul', {}, extra.map(k => h('li', { class: 'mono' }, k + ': ' + JSON.stringify(lo[k]))))) : null),
     bagUi.sel?.bag === 'Loadout' ? slotPanel(r, templates, commit) : h('div', { class: 'card empty' }, 'Click an armour slot to edit it.'));
@@ -1127,6 +1191,8 @@ function viewRaw() {
 const SERVER = '/Script/Dominion.DedicatedServerSettings';
 const SERVER_KNOWN = ['KnownPlayerList', 'PlatformPolicy', 'MaxPlayers', 'OwnerId', 'WorldPassword', 'ServerName', 'DefaultWorldName', 'ServerGuid', 'bAllowSendingCrashDumps'];
 const PLAYER_ID = /^[0-9a-fA-F]{32}$/;
+// EPlayerPrivilege bit values from the game executable (Owner = 128 is governed by OwnerId).
+const PRIVILEGES = [[1, 'Admin'], [2, 'Build'], [4, 'Open chests'], [8, 'Chat']];
 
 function loadServer(buf) {
   const { text, encoding } = decodeIni(buf);
@@ -1226,7 +1292,12 @@ function viewServer() {
         field('Server ID', h('input', { type: 'text', value: get('ServerGuid') ?? '', readonly: true, class: 'mono' }), 'Read-only. Changing it could make the server look like a different one.'),
       )),
     extra.length ? card('Other settings', 'Keys this editor does not know about. They are kept as written; edit with care.',
-      h('div', { class: 'grid' }, extra.map(k => field(k, textInput(get(k) ?? '', guard(v => set(k, v, k + ' updated'))))))) : null,
+      h('div', { class: 'grid' }, extra.map(k => {
+        const n = doc.entries(SERVER, k).length;
+        return n > 1
+          ? field(k, h('p', { class: 'muted' }, n + ' entries'), 'A list; edit it on the Raw file tab.')
+          : field(k, textInput(get(k) ?? '', guard(v => set(k, v, k + ' updated'))));
+      }))) : null,
   );
 }
 
@@ -1248,11 +1319,16 @@ function viewPlayers() {
         commit('Name updated');
       }), { 'aria-label': 'Name' }), id === owner ? h('span', { class: 'tag' }, 'owner') : null),
       h('td', { class: 'mono id' }, id),
-      h('td', {}, numberInput(Number(mask ?? 0), guard(v => {
-        if (!Number.isInteger(v) || v < 0) throw new Error('Privilege mask must be a whole number, 0 or more');
-        structSet(p.fields, ['Privileges', 'PrivilegeMask'], v);
-        commit('Privileges updated');
-      }), { class: 'small', min: '0', step: '1', 'aria-label': 'Privilege mask' })),
+      h('td', {}, h('div', { class: 'privs' }, PRIVILEGES.map(([bit, label]) => h('label', { class: 'inline' },
+        h('input', {
+          type: 'checkbox', checked: (Number(mask ?? 0) & bit) !== 0, 'aria-label': label,
+          onchange: guard(e => {
+            const cur = Number(structGet(p.fields, ['Privileges', 'PrivilegeMask']) ?? 0);
+            const next = e.target.checked ? cur | bit : cur & ~bit;
+            structSet(p.fields, ['Privileges', 'PrivilegeMask'], next);
+            commit(label + (e.target.checked ? ' allowed for ' : ' removed for ') + (playerName(p) || 'player'));
+          }),
+        }), ' ' + label)))),
       h('td', {}, h('input', {
         type: 'checkbox', checked: banned, 'aria-label': 'Banned',
         onchange: guard(e => {
@@ -1295,10 +1371,10 @@ function viewPlayers() {
 
   return card('Players', 'Everyone the server knows about. Ban or unban players, rename them, or add someone by their user ID.',
     h('div', { class: 'table-wrap' }, h('table', { class: 'slots' },
-      h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'User ID'), h('th', {}, 'Privilege mask'), h('th', {}, 'Banned'), h('th', {}, ''))),
+      h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'User ID'), h('th', {}, 'Privileges'), h('th', {}, 'Banned'), h('th', {}, ''))),
       h('tbody', {}, rows.length ? rows : h('tr', {}, h('td', { colspan: 5, class: 'muted' }, 'No players yet.'))))),
     h('h4', { class: 'sub-head' }, 'Add a player'), add,
-    h('p', { class: 'hint' }, 'Privilege mask: everyone in files seen so far has 14. What each value allows is not confirmed, so change it only if you know what you need.'));
+    h('p', { class: 'hint' }, 'A normal player has Build, Open chests and Chat. Admin gives server admin rights. The owner is set on the Server tab.'));
 }
 
 function viewRawIni() {

@@ -8,7 +8,7 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 
 **World saves** (`%LOCALAPPDATA%\RSDragonwilds\Saved\SaveGames\*.sav`)
 - World name, friendly fire, session password, crossplay, in-game clock
-- Difficulty mode and every custom difficulty setting (written to both the load-screen header and `WorldSaveSettings`)
+- Difficulty mode (Normal, Hard, Creative, Custom) and all 66 custom difficulty settings with the game's labels, ranges and Normal/Hard/Creative presets (written to both the load-screen header and `WorldSaveSettings`)
 - Contents of chests, crates and other containers, with item names: stack counts, durability, duplicate, remove, add any item from the game catalog
 - Processing station / weather / event state (embedded JSON)
 - Advanced: every stored object and property
@@ -46,7 +46,7 @@ src/model.js      class defs, property decode/patch, world settings, difficulty
 src/uejson.js     Unreal-style JSON parse/stringify
 src/inventory.js  slot helpers
 src/ini.js        DedicatedServer.ini parse/write
-src/data.js       difficulty tag list
+src/data.js       difficulty settings (generated from game data)
 src/catalog.js    item/skill names (generated)
 src/app.js        UI
 vercel.json       security headers, caching
