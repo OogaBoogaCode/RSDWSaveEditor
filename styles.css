@@ -284,3 +284,8 @@ input[readonly] { opacity: .75; }
 h4.sub-head { margin: 20px 0 4px; font-family: var(--serif); font-size: 1.05rem; }
 .add-player { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; }
 @media (max-width: 600px) { .add-player { grid-template-columns: 1fr; } }
+@media (min-width: 960px) {
+  .info-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .info-grid .card:first-child { grid-column: span 2; }
+  .info-grid .card:first-child ~ .card:last-child { grid-column: 1 / -1; }
+}

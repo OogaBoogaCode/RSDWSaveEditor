@@ -7,7 +7,7 @@
   <meta name="description" content="Edit RuneScape: Dragonwilds world and character saves in your browser. Your files never leave your device.">
   <meta name="color-scheme" content="dark light">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=12">
+  <link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
   <header class="site">
@@ -43,11 +43,13 @@
           <p class="sub">On Windows, paste one of these into the File Explorer address bar.</p>
           <div class="path"><span>Worlds</span><code>%LOCALAPPDATA%\RSDragonwilds\Saved\SaveGames</code><button type="button" data-copy="%LOCALAPPDATA%\RSDragonwilds\Saved\SaveGames">Copy</button></div>
           <div class="path"><span>Characters</span><code>%LOCALAPPDATA%\RSDragonwilds\Saved\SaveCharacters</code><button type="button" data-copy="%LOCALAPPDATA%\RSDragonwilds\Saved\SaveCharacters">Copy</button></div>
+          <div class="path"><span>Server settings</span><code>C:\Program Files (x86)\Steam\steamapps\common\RuneScape Dragonwilds Dedicated Server\RSDragonwilds\Saved\Config\WindowsServer</code><button type="button" data-copy="C:\Program Files (x86)\Steam\steamapps\common\RuneScape Dragonwilds Dedicated Server\RSDragonwilds\Saved\Config\WindowsServer">Copy</button></div>
+          <p class="hint">DedicatedServer.ini is in that folder on a default Steam install of the dedicated server. Other installs keep it in <code>RSDragonwilds\Saved\Config\WindowsServer</code> inside the server folder.</p>
         </article>
         <article class="card">
           <h2>Before you edit</h2>
           <ol class="steps">
-            <li>Close the game completely.</li>
+            <li>Close the game completely, or stop the dedicated server if you are editing its files.</li>
             <li>Copy the original file somewhere safe.</li>
             <li>Edit here, download, then replace the original with the downloaded file (same name).</li>
             <li>If Steam Cloud restores the old file, turn off Steam Cloud for the game while you swap it in.</li>
@@ -82,6 +84,6 @@
   </footer>
 
   <div id="toasts" aria-live="polite"></div>
-  <script type="module" src="src/app.js?v=12"></script>
+  <script type="module" src="src/app.js?v=14"></script>
 </body>
 </html>
