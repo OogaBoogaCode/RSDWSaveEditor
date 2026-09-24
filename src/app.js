@@ -3,7 +3,8 @@
 import { parseSave, writeSave } from './spud.js';
 import { WorldSave, typeName, isEditableType, shortClass } from './model.js';
 import { parse as parseJson, stringify as stringifyJson, num, keysOf } from './uejson.js';
-import { slots, putItem, removeItem, cloneItem, firstFreeSlot, itemCatalog } from './inventory.js';
+import { slots, putItem, removeItem, cloneItem, firstFreeSlot, itemCatalog, newItemGuid } from './inventory.js';
+import { ITEMS, SKILLS } from './catalog.js';
 import { DIFFICULTY_TAGS, DIFFICULTY_MODES } from './data.js';
 
 const $ = sel => document.querySelector(sel);
@@ -335,7 +336,8 @@ function viewStorage() {
   const invs = worldBlobs().filter(b => b.text.includes('"MaxSlotIndex"')).map(b => {
     let json = null;
     try { json = parseJson(b.text); } catch { /* shown as broken */ }
-    return { ...b, json, count: json ? slots(json).length : 0 };
+    const ids = json ? slots(json).map(s => s.item.ItemData) : [];
+    return { ...b, json, count: ids.length, names: ids.map(itemSearchText).join(' ') };
   });
   const catalog = itemCatalog(invs.filter(i => i.json).map(i => i.json));
 
@@ -345,7 +347,7 @@ function viewStorage() {
   const draw = () => {
     const q = storageUi.filter.toLowerCase();
     const shown = invs.filter(i => (!storageUi.hideEmpty || i.count) &&
-      (!q || (blobLabel(i) + ' ' + i.obj.container + ' ' + i.component + ' ' + i.text).toLowerCase().includes(q)));
+      (!q || (blobLabel(i) + ' ' + areaLabel(i.obj.container) + ' ' + i.component + ' ' + i.names + ' ' + i.text).toLowerCase().includes(q)));
     fill(list, 
       h('p', { class: 'muted' }, shown.length + ' of ' + invs.length + ' containers'),
       ...shown.slice(0, 400).map(i => h('button', {
@@ -360,16 +362,16 @@ function viewStorage() {
         title: blobLabel(open),
         subtitle: areaLabel(open.obj.container) + ' · ' + (open.component || open.name),
         catalog,
-        commit: msg => { w.setProperty(open.obj, open.path, stringifyJson(open.json)); open.text = stringifyJson(open.json); open.count = slots(open.json).length; changed(msg); draw(); },
+        commit: msg => { w.setProperty(open.obj, open.path, stringifyJson(open.json)); open.text = stringifyJson(open.json); open.count = slots(open.json).length; open.names = slots(open.json).map(s => itemSearchText(s.item.ItemData)).join(' '); changed(msg); draw(); },
       })
       : h('div', { class: 'empty' }, h('p', {}, 'Pick a chest, crate or station on the left to edit what is inside.')));
   };
 
-  const search = h('input', { type: 'search', placeholder: 'Search containers or item IDs', value: storageUi.filter, oninput: e => { storageUi.filter = e.target.value; draw(); } });
+  const search = h('input', { type: 'search', placeholder: 'Search containers or items', value: storageUi.filter, oninput: e => { storageUi.filter = e.target.value; draw(); } });
   const hide = h('label', { class: 'inline' }, h('input', { type: 'checkbox', checked: storageUi.hideEmpty, onchange: e => { storageUi.hideEmpty = e.target.checked; draw(); } }), ' Hide empty');
   draw();
   return h('div', { class: 'stack' },
-    card('Storage', 'Chests, crates and other containers placed in this world. Item types are shown by their in-game ID.',
+    card('Storage', 'Chests, crates and other containers placed in this world. Search by container or by an item inside it.',
       h('div', { class: 'toolbar' }, search, hide),
       h('div', { class: 'split' }, list, detail)));
 }
@@ -379,31 +381,43 @@ function inventoryEditor(inv, { title, subtitle, catalog, commit }) {
   if (!inv) return h('p', { class: 'error' }, 'This inventory could not be read.');
   const rows = slots(inv);
   const fieldsSeen = new Set();
-  rows.forEach(r => keysOf(r.item).forEach(k => { if (k !== 'GUID' && k !== 'ItemData') fieldsSeen.add(k); }));
+  rows.forEach(r => keysOf(r.item).forEach(k => { if (k !== 'GUID' && k !== 'ItemData' && k !== 'Count') fieldsSeen.add(k); }));
   const numFields = [...fieldsSeen].filter(f => rows.some(r => typeof num(r.item[f]) === 'number'));
+  const anyStack = rows.some(r => isStackable(r.item.ItemData) || 'Count' in r.item);
+
+  // The game omits Count for a single item, so 1 is written by removing the field.
+  const countCell = (item, slot) => {
+    if (!isStackable(item.ItemData) && !('Count' in item)) return h('td', {}, h('span', { class: 'muted' }, '—'));
+    return h('td', {}, numberInput('Count' in item ? num(item.Count) : 1, guard(v => {
+      const n = Math.floor(v);
+      if (n < 1) throw new Error('Count must be 1 or more');
+      if (n === 1) delete item.Count; else item.Count = n;
+      commit('Count set to ' + n + ' in slot ' + slot);
+    }), { class: 'small', min: '1', step: '1' }));
+  };
 
   const table = h('table', { class: 'slots' },
-    h('thead', {}, h('tr', {}, h('th', {}, 'Slot'), h('th', {}, 'Item ID'), ...numFields.map(f => h('th', {}, f)), h('th', {}, ''))),
+    h('thead', {}, h('tr', {}, h('th', {}, 'Slot'), h('th', {}, 'Item'), anyStack ? h('th', {}, 'Count') : null, ...numFields.map(f => h('th', {}, f)), h('th', {}, ''))),
     h('tbody', {}, rows.length ? rows.map(({ slot, item }) => h('tr', {},
       h('td', { class: 'mono' }, slot),
-      h('td', { class: 'mono id', title: item.ItemData }, item.ItemData ?? '—'),
+      itemCell(item.ItemData),
+      anyStack ? countCell(item, slot) : null,
       ...numFields.map(f => h('td', {}, typeof num(item[f]) === 'number'
-        ? numberInput(num(item[f]), guard(v => { item[f] = Math.round(v) === v ? v : v; commit(f + ' updated in slot ' + slot); }), { class: 'small', min: '0' })
+        ? numberInput(num(item[f]), guard(v => { item[f] = v; commit(f + ' updated in slot ' + slot); }), { class: 'small', min: '0' })
         : h('span', { class: 'muted' }, '—'))),
       h('td', {}, h('div', { class: 'row-actions' },
         h('button', { title: 'Duplicate into the first free slot', onclick: guard(() => { const s = firstFreeSlot(inv); putItem(inv, s, cloneItem(item)); commit('Duplicated into slot ' + s); }) }, 'Duplicate'),
         h('button', { class: 'danger', onclick: guard(() => { removeItem(inv, slot); commit('Removed slot ' + slot); }) }, 'Remove'))),
-    )) : h('tr', {}, h('td', { colspan: 3 + numFields.length, class: 'muted' }, 'Empty'))));
+    )) : h('tr', {}, h('td', { colspan: 4 + numFields.length, class: 'muted' }, 'Empty'))));
 
-  const countField = numFields.includes('Count');
-  const bulk = countField ? h('div', { class: 'inline-form' },
+  const bulk = rows.some(r => 'Count' in r.item) ? h('div', { class: 'inline-form' },
     h('span', {}, 'Set every stack count to'),
     (() => {
-      const inp = h('input', { type: 'number', min: '1', value: '100', class: 'small' });
+      const inp = h('input', { type: 'number', min: '2', value: '100', class: 'small' });
       return [inp, h('button', {
         onclick: guard(() => {
           const v = Math.floor(Number(inp.value));
-          if (!(v >= 1)) throw new Error('Enter a count of 1 or more');
+          if (!(v >= 2)) throw new Error('Enter a count of 2 or more');
           let n = 0;
           for (const r of rows) if ('Count' in r.item) { r.item.Count = v; n++; }
           commit(n + ' stacks set to ' + v);
@@ -411,28 +425,113 @@ function inventoryEditor(inv, { title, subtitle, catalog, commit }) {
       }, 'Apply')];
     })()) : null;
 
-  let add = null;
-  if (catalog && catalog.size) {
-    const sel = h('select', {}, [...catalog.keys()].sort().map(id => h('option', { value: id }, id)));
-    const slotIn = h('input', { type: 'number', min: '0', value: String(firstFreeSlot(inv)), class: 'small', 'aria-label': 'Slot' });
-    add = h('div', { class: 'inline-form' },
-      h('span', {}, 'Add item'), sel, h('span', {}, 'to slot'), slotIn,
-      h('button', {
-        onclick: guard(() => {
-          const s = Math.floor(Number(slotIn.value));
-          if (!(s >= 0)) throw new Error('Slot must be 0 or more');
-          if (String(s) in inv && !confirm('Slot ' + s + ' is occupied. Replace it?')) return;
-          putItem(inv, s, cloneItem(catalog.get(sel.value)));
-          commit('Added item to slot ' + s);
-        }),
-      }, 'Add'));
-  }
-
   return h('div', { class: 'inv-editor' },
-    h('h3', {}, title), subtitle ? h('p', { class: 'muted' }, subtitle) : null,
+    title ? h('h3', {}, title) : null, subtitle ? h('p', { class: 'muted' }, subtitle) : null,
     h('div', { class: 'table-wrap' }, table),
-    bulk, add,
-    h('p', { class: 'hint' }, 'New items copy the stats of an existing item of the same type and get a fresh unique ID. Only items already present in this file can be added.'),
+    bulk,
+    addItemForm(inv, catalog, commit),
+  );
+}
+
+const EQUIPMENT = new Set(['Weapon/Tool', 'Armour', 'Shield', 'Jewellery']);
+const FLAG_LABELS = { r: 'retired', g: 'unofficial name', p: 'placeholder name' };
+
+function itemInfo(id) {
+  const r = ITEMS[id];
+  return r ? { id, name: r[0], cat: r[1], flags: r[2] || '', hint: r[3] || '' } : null;
+}
+
+function isStackable(id) {
+  const i = itemInfo(id);
+  return !!i && !EQUIPMENT.has(i.cat);
+}
+
+function itemCell(id) {
+  const i = itemInfo(id);
+  if (!i) return h('td', { class: 'item' }, h('div', { class: 'item-name' }, 'Unknown item'), h('div', { class: 'item-sub mono' }, id ?? '—'));
+  return h('td', { class: 'item', title: id },
+    h('div', { class: 'item-name' }, i.name, [...i.flags].map(f => h('span', { class: 'tag' }, FLAG_LABELS[f]))),
+    h('div', { class: 'item-sub' }, i.cat + (i.hint ? ' · ' + i.hint : '')));
+}
+
+function itemSearchText(id) {
+  const i = itemInfo(id);
+  return i ? (i.name + ' ' + i.cat + ' ' + i.hint).toLowerCase() : String(id).toLowerCase();
+}
+
+// Add any item from the game catalog. Items already in the file are copied so they keep
+// the game's own fields; others are built from scratch (Count for stacks, optional Durability).
+function addItemForm(inv, templates, commit) {
+  let chosen = null;
+  const search = h('input', { type: 'search', placeholder: 'Search items, e.g. rune pickaxe', 'aria-label': 'Search items' });
+  const retired = h('input', { type: 'checkbox' });
+  const results = h('div', { class: 'item-results', role: 'listbox' });
+  const picked = h('div', { class: 'picked' });
+  const qty = h('input', { type: 'number', min: '1', value: '1', class: 'small', 'aria-label': 'Quantity' });
+  const dura = h('input', { type: 'number', min: '1', class: 'small', placeholder: 'game default', 'aria-label': 'Durability' });
+  const slotIn = h('input', { type: 'number', min: '0', value: String(firstFreeSlot(inv)), class: 'small', 'aria-label': 'Slot' });
+  const qtyField = h('label', { class: 'inline' }, 'Quantity ', qty);
+  const duraField = h('label', { class: 'inline' }, 'Durability ', dura);
+  const addBtn = h('button', { class: 'primary', disabled: true }, 'Add');
+
+  const all = Object.keys(ITEMS);
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    if (!q) { fill(results); return; }
+    const words = q.split(/\s+/);
+    const hits = all.filter(id => {
+      const i = itemInfo(id);
+      if (i.flags.includes('r') && !retired.checked) return false;
+      const t = itemSearchText(id);
+      return words.every(w => t.includes(w)) || id.toLowerCase() === q;
+    }).sort((x, y) => (templates?.has(y) ? 1 : 0) - (templates?.has(x) ? 1 : 0) || itemInfo(x).name.localeCompare(itemInfo(y).name));
+    fill(results, hits.slice(0, 40).map(id => {
+      const i = itemInfo(id);
+      return h('button', {
+        type: 'button', role: 'option', class: 'item-result' + (chosen === id ? ' active' : ''),
+        onclick: () => { chosen = id; update(); draw(); },
+      }, h('strong', {}, i.name), h('span', {}, i.cat + (i.hint ? ' · ' + i.hint : '') + (templates?.has(id) ? ' · in this file' : '')));
+    }), hits.length > 40 ? h('p', { class: 'muted' }, hits.length - 40 + ' more; keep typing to narrow down.') : null,
+    hits.length ? null : h('p', { class: 'muted' }, 'No matching items.'));
+  };
+  const update = () => {
+    const i = chosen && itemInfo(chosen);
+    addBtn.disabled = !i;
+    qtyField.hidden = !i || !isStackable(chosen);
+    duraField.hidden = !i || !EQUIPMENT.has(i.cat) || !!templates?.has(chosen);
+    fill(picked, i ? ['Selected: ', h('strong', {}, i.name), ' ', h('span', { class: 'muted' }, '(' + i.cat + ')')] : null);
+  };
+  search.addEventListener('input', draw);
+  retired.addEventListener('change', draw);
+  addBtn.addEventListener('click', guard(() => {
+    const s = Math.floor(Number(slotIn.value));
+    if (!(s >= 0)) throw new Error('Slot must be 0 or more');
+    if (String(s) in inv && !confirm('Slot ' + s + ' is occupied. Replace it?')) return;
+    let item;
+    if (templates?.has(chosen)) item = cloneItem(templates.get(chosen));
+    else {
+      item = { GUID: newItemGuid(), ItemData: chosen };
+      if (EQUIPMENT.has(itemInfo(chosen).cat) && dura.value !== '') {
+        const d = Math.floor(Number(dura.value));
+        if (!(d >= 1)) throw new Error('Durability must be 1 or more');
+        item.Durability = d;
+      }
+    }
+    if (isStackable(chosen)) {
+      const n = Math.floor(Number(qty.value));
+      if (!(n >= 1)) throw new Error('Quantity must be 1 or more');
+      if (n === 1) delete item.Count; else item.Count = n;
+    }
+    putItem(inv, s, item);
+    commit('Added ' + itemInfo(chosen).name + ' to slot ' + s);
+  }));
+  update();
+  return h('div', { class: 'add-item' },
+    h('h4', {}, 'Add an item'),
+    h('div', { class: 'toolbar' }, search, h('label', { class: 'inline' }, retired, ' Include retired items')),
+    results, picked,
+    h('div', { class: 'inline-form' }, qtyField, duraField, h('label', { class: 'inline' }, 'Slot ', slotIn), addBtn),
+    h('p', { class: 'hint' }, 'Items already in this file are copied with their stats. Other equipment is created at the durability you enter, or the game default if left blank. Each new item gets a fresh unique ID.'),
   );
 }
 
@@ -599,11 +698,11 @@ function viewSkills() {
   const skills = charPath('Skills', 'Skills');
   if (!Array.isArray(skills)) return card('Skills', 'No skills found in this save.');
   const all = h('input', { type: 'number', min: '0', value: '', placeholder: 'XP', class: 'small' });
-  return card('Skills', 'Skills are stored by internal ID with their total XP. Levels are worked out by the game from XP.',
+  return card('Skills', 'Total XP per skill. The game works out levels from XP.',
     h('div', { class: 'table-wrap' }, h('table', { class: 'slots' },
-      h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, 'Skill ID'), h('th', {}, 'XP'))),
+      h('thead', {}, h('tr', {}, h('th', {}, 'Skill'), h('th', {}, 'XP'))),
       h('tbody', {}, skills.map((s, i) => h('tr', {},
-        h('td', {}, i + 1), h('td', { class: 'mono id' }, s.Id),
+        h('td', { class: 'item', title: s.Id }, h('div', { class: 'item-name' }, SKILLS[s.Id] ?? 'Unknown skill'), SKILLS[s.Id] ? null : h('div', { class: 'item-sub mono' }, s.Id)),
         h('td', {}, numberInput(num(s.Xp), guard(v => {
           if (v < 0 || !Number.isInteger(v)) throw new Error('XP must be a whole number, 0 or more');
           s.Xp = v; changed('XP updated');

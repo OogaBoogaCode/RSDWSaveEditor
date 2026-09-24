@@ -204,3 +204,18 @@ td.id { min-width: 140px; }
   input.small { width: 84px; }
   .card { padding: 16px; }
 }
+
+/* Item names */
+td.item { min-width: 180px; }
+.item-name { font-weight: 600; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.item-sub { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.tag { font-size: .7rem; font-weight: 500; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+.add-item { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.add-item h4 { margin: 0 0 10px; font-family: var(--serif); font-size: 1.05rem; }
+.item-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; max-height: 280px; overflow-y: auto; }
+.item-results > p { grid-column: 1 / -1; margin: 4px 0; }
+.item-result { display: grid; text-align: left; gap: 2px; white-space: normal; }
+.item-result span { color: var(--muted); font-size: .8rem; }
+.item-result.active { border-color: var(--gold); background: var(--bg); }
+.picked { margin-top: 10px; min-height: 1.5em; }
+[hidden] { display: none !important; }

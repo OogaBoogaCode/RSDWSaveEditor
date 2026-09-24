@@ -9,7 +9,7 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 **World saves** (`%LOCALAPPDATA%\RSDragonwilds\Saved\SaveGames\*.sav`)
 - World name, friendly fire, session password, crossplay, in-game clock
 - Difficulty mode and every custom difficulty setting (written to both the load-screen header and `WorldSaveSettings`)
-- Contents of chests, crates and other containers: stack counts, durability, duplicate, remove, add items already present in the file
+- Contents of chests, crates and other containers, with item names: stack counts, durability, duplicate, remove, add any item from the game catalog
 - Processing station / weather / event state (embedded JSON)
 - Advanced: every stored object and property
 
@@ -41,10 +41,11 @@ src/model.js      class defs, property decode/patch, world settings, difficulty
 src/uejson.js     Unreal-style JSON parse/stringify
 src/inventory.js  slot helpers
 src/data.js       difficulty tag list
+src/catalog.js    item/skill names (generated)
 src/app.js        UI
 vercel.json       security headers, caching
 ```
 
-Item and skill names are not bundled. The game identifies them by asset GUIDs, and no licensed name catalog is available to include.
+`src/catalog.js` maps the game's item and skill PersistenceIDs (base64url GUIDs used in saves) to display names. It is generated from the game's asset registry and string tables and needs regenerating after game updates that add items.
 
 Unofficial fan tool, not affiliated with Jagex.
