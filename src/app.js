@@ -772,17 +772,17 @@ function viewSkills() {
 
 // ---------------------------------------------------------------------------
 // Character inventory, laid out like the game.
-// Backpack: slots 0-7 are the hotbar (shared by every page). Each page starts on a
-// 24-slot boundary in the save; Items uses all 24, the other pages have 18.
+// Backpack: slots 0-7 are the hotbar (shared by every page), then four pages of 8x3.
 // Loadout keeps armour directly; hand/ammo slots point at backpack slots.
 // Only slots that exist in game can receive items.
 
 const HOTBAR_SIZE = 8;
+const PAGE_SIZE = 24;
 const BAG_PAGES = [
-  { name: 'Items', start: 8, size: 24, cols: 8 },
-  { name: 'Runes', start: 32, size: 18, cols: 6 },
-  { name: 'Ammo', start: 56, size: 18, cols: 6 },
-  { name: 'Quest items', start: 80, size: 18, cols: 6 },
+  { name: 'Items', start: 8 },
+  { name: 'Runes', start: 32 },
+  { name: 'Ammo', start: 56 },
+  { name: 'Quest items', start: 80 },
 ];
 const LOADOUT = [
   { key: '0', label: 'Head' },
@@ -807,7 +807,7 @@ function validSlots(r, bag) {
     const out = [];
     for (let i = 0; i < HOTBAR_SIZE; i++) out.push({ slot: i, label: 'Hotbar ' + (i + 1), page: -1 });
     BAG_PAGES.forEach((p, pi) => {
-      for (let i = 0; i < p.size; i++) out.push({ slot: p.start + i, label: p.name + ' ' + (i + 1), page: pi });
+      for (let i = 0; i < PAGE_SIZE; i++) out.push({ slot: p.start + i, label: p.name + ' ' + (i + 1), page: pi });
     });
     return out;
   }
@@ -864,7 +864,7 @@ function removeBagSlot(r, bag, slot) {
 // Backpack page a slot number belongs to (-1 hotbar), including slots past a page's end.
 function pageOfSlot(slot) {
   if (slot < HOTBAR_SIZE) return -1;
-  return BAG_PAGES.findIndex(p => slot >= p.start && slot < p.start + 24);
+  return BAG_PAGES.findIndex(p => slot >= p.start && slot < p.start + PAGE_SIZE);
 }
 
 // First empty real slot for a copy. Backpack copies stay on their own page
@@ -964,14 +964,14 @@ function backpackView(r, templates, commit) {
   const hotbar = h('div', { class: 'slot-grid hotbar' },
     Array.from({ length: HOTBAR_SIZE }, (_, i) => slotButton(r, 'Inventory', i, { label: i + 1 })));
   const tabs = h('div', { class: 'bag-tabs', role: 'tablist' }, BAG_PAGES.map((p, i) => {
-    const used = slots(inv).filter(s => s.slot >= p.start && s.slot < p.start + p.size).length;
+    const used = slots(inv).filter(s => s.slot >= p.start && s.slot < p.start + PAGE_SIZE).length;
     return h('button', {
       role: 'tab', 'aria-selected': String(bagUi.page === i),
       onclick: () => { bagUi.page = i; bagUi.sel = null; render(); },
-    }, p.name, h('span', { class: 'muted' }, ' ' + used + '/' + p.size));
+    }, p.name, h('span', { class: 'muted' }, ' ' + used + '/' + PAGE_SIZE));
   }));
-  const grid = h('div', { class: 'slot-grid page cols-' + page.cols },
-    Array.from({ length: page.size }, (_, i) => slotButton(r, 'Inventory', page.start + i)));
+  const grid = h('div', { class: 'slot-grid page' },
+    Array.from({ length: PAGE_SIZE }, (_, i) => slotButton(r, 'Inventory', page.start + i)));
   const stray = slots(inv).filter(s => !isValidSlot(r, 'Inventory', s.slot));
   return h('div', { class: 'bag-layout' },
     card('Backpack', 'Drag an item onto another slot to move or swap it. Click a slot to edit it, or to add an item to an empty slot.',

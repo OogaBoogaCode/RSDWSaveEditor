@@ -273,11 +273,7 @@ td.item { min-width: 180px; }
   .filebar { position: static; }
 }
 
-.slot-grid.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); max-width: 75%; }
 .slot.stray { border-color: var(--danger); border-style: dashed; }
 .stray-box { margin-top: 16px; }
 .stray-box .slot-grid { margin-top: 8px; }
-@media (max-width: 600px) {
-  .slot-grid.cols-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: none; }
-}
 .move-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin-top: 14px; }
