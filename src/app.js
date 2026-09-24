@@ -473,7 +473,8 @@ function itemSearchText(id) {
 
 // Add any item from the game catalog. Items already in the file are copied so they keep
 // the game's own fields; others are built from scratch (Count for stacks, optional Durability).
-function addItemForm(inv, templates, commit) {
+// fixedSlot: add into that slot instead of letting the user pick one.
+function addItemForm(inv, templates, commit, fixedSlot = null) {
   let chosen = null;
   const search = h('input', { type: 'search', placeholder: 'Search items, e.g. rune pickaxe', 'aria-label': 'Search items' });
   const retired = h('input', { type: 'checkbox' });
@@ -481,7 +482,7 @@ function addItemForm(inv, templates, commit) {
   const picked = h('div', { class: 'picked' });
   const qty = h('input', { type: 'number', min: '1', value: '1', class: 'small', 'aria-label': 'Quantity' });
   const dura = h('input', { type: 'number', min: '1', class: 'small', placeholder: 'game default', 'aria-label': 'Durability' });
-  const slotIn = h('input', { type: 'number', min: '0', value: String(firstFreeSlot(inv)), class: 'small', 'aria-label': 'Slot' });
+  const slotIn = h('input', { type: 'number', min: '0', value: String(fixedSlot ?? firstFreeSlot(inv)), class: 'small', 'aria-label': 'Slot' });
   const qtyField = h('label', { class: 'inline' }, 'Quantity ', qty);
   const duraField = h('label', { class: 'inline' }, 'Durability ', dura);
   const addBtn = h('button', { class: 'primary', disabled: true }, 'Add');
@@ -539,10 +540,10 @@ function addItemForm(inv, templates, commit) {
   }));
   update();
   return h('div', { class: 'add-item' },
-    h('h4', {}, 'Add an item'),
+    h('h4', {}, fixedSlot == null ? 'Add an item' : 'Add an item to slot ' + fixedSlot),
     h('div', { class: 'toolbar' }, search, h('label', { class: 'inline' }, retired, ' Include retired items')),
     results, picked,
-    h('div', { class: 'inline-form' }, qtyField, duraField, h('label', { class: 'inline' }, 'Slot ', slotIn), addBtn),
+    h('div', { class: 'inline-form' }, qtyField, duraField, h('label', { class: 'inline', hidden: fixedSlot != null }, 'Slot ', slotIn), addBtn),
     h('p', { class: 'hint' }, 'Items already in this file are copied with their stats. Other equipment is created at the durability you enter, or the game default if left blank. Each new item gets a fresh unique ID.'),
   );
 }
@@ -743,21 +744,289 @@ function viewSkills() {
       }, 'Apply')));
 }
 
-const charInvUi = { which: 'Inventory' };
+// ---------------------------------------------------------------------------
+// Character inventory, laid out like the game.
+// Backpack slots: 0-7 hotbar (shared by every page), then four pages of 8x3.
+// Loadout keeps armour directly; hand/ammo slots point at backpack slots.
+
+const HOTBAR_SIZE = 8;
+const PAGE_COLS = 8;
+const PAGE_SIZE = 24;
+const BAG_PAGES = [
+  { name: 'Items', start: 8 },
+  { name: 'Runes', start: 32 },
+  { name: 'Ammo', start: 56 },
+  { name: 'Quest items', start: 80 },
+];
+const BAG_END = 104;
+const LOADOUT = [
+  { key: '0', label: 'Head' },
+  { key: '1', label: 'Body' },
+  { key: '2', label: 'Legs' },
+  { key: '3', label: 'Cape' },
+  { key: '4', label: 'Amulet' },
+  { key: '7', label: 'Main hand', ref: true },
+  { key: '8', label: 'Off hand', ref: true },
+  { key: '5', label: 'Arrows', ref: true },
+  { key: '9', label: 'Bolts', ref: true },
+  { key: '6', label: 'Rune', ref: true },
+];
+
+const bagUi = { view: 'Inventory', page: 0, sel: null };
+
+const isRef = v => v && typeof v === 'object' && 'PlayerInventoryItemIndex' in v;
+
+// Loadout entries pointing into the backpack: [{ key, label, slot }]
+function loadoutRefs(r) {
+  const lo = r.Loadout;
+  if (!lo) return [];
+  return keysOf(lo).filter(k => /^\d+$/.test(k) && isRef(lo[k])).map(k => ({
+    key: k,
+    label: LOADOUT.find(l => l.key === k)?.label ?? 'Loadout ' + k,
+    slot: num(lo[k].PlayerInventoryItemIndex),
+  }));
+}
+
+// Move or swap two backpack slots, keeping equipped references pointing at the same items.
+function moveBagSlot(r, from, to) {
+  const inv = r.Inventory;
+  if (from === to) return;
+  const a = inv[String(from)];
+  const b = inv[String(to)];
+  if (!a) throw new Error('Slot ' + from + ' is empty');
+  if (b) putItem(inv, from, b); else removeItem(inv, from);
+  putItem(inv, to, a);
+  for (const ref of loadoutRefs(r)) {
+    const entry = r.Loadout[ref.key];
+    if (ref.slot === from) entry.PlayerInventoryItemIndex = to;
+    else if (b && ref.slot === to) entry.PlayerInventoryItemIndex = from;
+  }
+}
+
+function removeBagSlot(r, bag, slot) {
+  const inv = r[bag];
+  const refs = bag === 'Inventory' ? loadoutRefs(r).filter(x => x.slot === slot) : [];
+  if (refs.length && !confirm('This item is equipped (' + refs.map(x => x.label).join(', ') + '). Remove it and unequip?')) return false;
+  removeItem(inv, slot);
+  for (const x of refs) removeItem(r.Loadout, Number(x.key));
+  return true;
+}
+
+function freeSlotIn(inv, start, end) {
+  for (let s = start; s < end; s++) if (!(String(s) in inv)) return s;
+  return firstFreeSlot(inv);
+}
 
 function viewCharInventory() {
   const r = state.char.root;
-  const bags = ['Inventory', 'PersonalInventory', 'Loadout'].filter(k => r[k] && typeof r[k] === 'object');
-  if (!bags.length) return card('Inventory', 'No inventory found in this save.');
-  if (!bags.includes(charInvUi.which)) charInvUi.which = bags[0];
-  const labels = { Inventory: 'Backpack', PersonalInventory: 'Personal storage', Loadout: 'Equipped' };
-  const catalog = itemCatalog(bags.map(b => r[b]));
+  const views = [
+    ['Inventory', 'Backpack'],
+    ['Loadout', 'Equipped'],
+    ['PersonalInventory', 'Personal storage'],
+  ].filter(([k]) => r[k] && typeof r[k] === 'object');
+  if (!views.length) return card('Inventory', 'No inventory found in this save.');
+  if (!views.some(([k]) => k === bagUi.view)) bagUi.view = views[0][0];
+  const templates = itemCatalog(['Inventory', 'PersonalInventory', 'Loadout'].filter(k => r[k]).map(k => r[k]));
+  const commit = msg => { changed(msg); render(); };
+
+  let body;
+  if (bagUi.view === 'Inventory') body = backpackView(r, templates, commit);
+  else if (bagUi.view === 'Loadout') body = loadoutView(r, templates, commit);
+  else body = storageGridView(r, templates, commit);
+
   return h('div', { class: 'stack' },
-    h('div', { class: 'seg' }, bags.map(b => h('button', {
-      'aria-pressed': String(charInvUi.which === b), onclick: () => { charInvUi.which = b; render(); },
-    }, labels[b] ?? b, ' (' + slots(r[b]).length + ')'))),
-    card(labels[charInvUi.which] ?? charInvUi.which, charInvUi.which === 'Loadout' ? 'Some equipped slots point at backpack slots, so move or remove equipped items with care.' : null,
-      inventoryEditor(r[charInvUi.which], { title: '', catalog, commit: msg => { changed(msg); render(); } })));
+    h('div', { class: 'seg' }, views.map(([k, label]) => h('button', {
+      'aria-pressed': String(bagUi.view === k),
+      onclick: () => { bagUi.view = k; bagUi.sel = null; render(); },
+    }, label, ' (' + slots(r[k]).length + ')'))),
+    body);
+}
+
+function slotButton(r, bag, slot, { label } = {}) {
+  const inv = r[bag];
+  const item = inv[String(slot)];
+  const info = item && itemInfo(item.ItemData);
+  const eq = bag === 'Inventory' && item ? loadoutRefs(r).filter(x => x.slot === slot) : [];
+  const selected = bagUi.sel && bagUi.sel.bag === bag && bagUi.sel.slot === slot;
+  const count = item && 'Count' in item ? num(item.Count) : null;
+  const dur = item && typeof num(item.Durability) === 'number' ? num(item.Durability) : null;
+  const title = item ? (info ? info.name : 'Unknown item') + ' (slot ' + slot + ')' : 'Empty slot ' + slot;
+  const el = h('button', {
+    type: 'button',
+    class: 'slot' + (item ? ' filled' : '') + (selected ? ' selected' : '') + (eq.length ? ' equipped' : ''),
+    title: title + (eq.length ? ' · equipped: ' + eq.map(x => x.label).join(', ') : ''),
+    'aria-label': title,
+    'aria-pressed': String(!!selected),
+    draggable: item && bag !== 'Loadout' ? 'true' : null,
+    onclick: () => {
+      bagUi.sel = { bag, slot };
+      render();
+      // On narrow screens the editor sits below the grid, so bring it into view.
+      if (window.matchMedia('(max-width: 900px)').matches) $('.slot-panel')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    },
+  },
+  label != null ? h('span', { class: 'slot-num' }, label) : null,
+  item ? h('span', { class: 'slot-name' }, info ? info.name : 'Unknown') : null,
+  count != null ? h('span', { class: 'slot-count' }, count.toLocaleString()) : null,
+  dur != null ? h('span', { class: 'slot-dur' }, dur.toLocaleString()) : null,
+  eq.length ? h('span', { class: 'slot-eq', 'aria-hidden': 'true' }, 'E') : null);
+
+  el.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ bag, slot }));
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop'); });
+  el.addEventListener('dragleave', () => el.classList.remove('drop'));
+  el.addEventListener('drop', guard(e => {
+    e.preventDefault();
+    el.classList.remove('drop');
+    const src = JSON.parse(e.dataTransfer.getData('text/plain') || 'null');
+    if (!src || src.bag !== bag || src.slot === slot) return;
+    const swapping = String(slot) in inv;
+    if (bag === 'Inventory') moveBagSlot(r, src.slot, slot);
+    else {
+      const a = inv[String(src.slot)], b = inv[String(slot)];
+      if (b) putItem(inv, src.slot, b); else removeItem(inv, src.slot);
+      putItem(inv, slot, a);
+    }
+    bagUi.sel = { bag, slot };
+    changed(swapping ? 'Swapped slots ' + src.slot + ' and ' + slot : 'Moved to slot ' + slot);
+    render();
+  }));
+  return el;
+}
+
+function backpackView(r, templates, commit) {
+  const inv = r.Inventory;
+  const page = BAG_PAGES[bagUi.page];
+  const hotbar = h('div', { class: 'slot-grid hotbar' },
+    Array.from({ length: HOTBAR_SIZE }, (_, i) => slotButton(r, 'Inventory', i, { label: i + 1 })));
+  const tabs = h('div', { class: 'bag-tabs', role: 'tablist' }, BAG_PAGES.map((p, i) => {
+    const used = slots(inv).filter(s => s.slot >= p.start && s.slot < p.start + PAGE_SIZE).length;
+    return h('button', {
+      role: 'tab', 'aria-selected': String(bagUi.page === i),
+      onclick: () => { bagUi.page = i; render(); },
+    }, p.name, h('span', { class: 'muted' }, ' ' + used + '/' + PAGE_SIZE));
+  }));
+  const grid = h('div', { class: 'slot-grid page' },
+    Array.from({ length: PAGE_SIZE }, (_, i) => slotButton(r, 'Inventory', page.start + i)));
+  const stray = slots(inv).filter(s => s.slot >= BAG_END);
+  return h('div', { class: 'bag-layout' },
+    card('Backpack', 'Drag an item onto another slot to move or swap it. Click a slot to edit it, or to add an item to an empty slot.',
+      h('p', { class: 'bag-label' }, 'Hotbar'), hotbar,
+      tabs, grid,
+      stray.length ? h('div', {}, h('p', { class: 'bag-label' }, 'Other slots'), h('div', { class: 'slot-grid page' }, stray.map(s => slotButton(r, 'Inventory', s.slot, { label: s.slot })))) : null),
+    slotPanel(r, templates, commit, { start: page.start, end: page.start + PAGE_SIZE }));
+}
+
+function storageGridView(r, templates, commit) {
+  const inv = r.PersonalInventory;
+  const used = slots(inv).map(s => s.slot);
+  const top = Math.max(num(inv.MaxSlotIndex) ?? -1, ...used, 15);
+  const size = Math.ceil((top + 1) / PAGE_COLS) * PAGE_COLS;
+  return h('div', { class: 'bag-layout' },
+    card('Personal storage', 'Laid out in rows of 8. The in-game size of this storage is not confirmed.',
+      h('div', { class: 'slot-grid page' }, Array.from({ length: size }, (_, i) => slotButton(r, 'PersonalInventory', i)))),
+    slotPanel(r, templates, commit, { start: 0, end: size }));
+}
+
+function loadoutView(r, templates, commit) {
+  const lo = r.Loadout;
+  const inv = r.Inventory ?? {};
+  const known = new Set(LOADOUT.map(l => l.key));
+  const extra = keysOf(lo).filter(k => /^\d+$/.test(k) && !known.has(k));
+  const bagOptions = slots(inv).map(s => [s.slot, (itemInfo(s.item.ItemData)?.name ?? 'Unknown') + ' (slot ' + s.slot + ')']);
+
+  const armour = LOADOUT.filter(l => !l.ref).map(l => {
+    const b = slotButton(r, 'Loadout', Number(l.key), {});
+    return h('div', { class: 'equip-slot' }, h('span', { class: 'bag-label' }, l.label), b);
+  });
+  const refs = LOADOUT.filter(l => l.ref).map(l => {
+    const cur = isRef(lo[l.key]) ? num(lo[l.key].PlayerInventoryItemIndex) : null;
+    const sel = h('select', {
+      'aria-label': l.label,
+      onchange: guard(e => {
+        const v = e.target.value;
+        if (v === '') removeItem(lo, Number(l.key));
+        else putItem(lo, Number(l.key), { PlayerInventoryItemIndex: Number(v) });
+        commit(l.label + (v === '' ? ' cleared' : ' set to slot ' + v));
+      }),
+    }, h('option', { value: '' }, 'Nothing'),
+    cur != null && !(String(cur) in inv) ? h('option', { value: cur, selected: true }, 'Empty slot ' + cur + ' (broken link)') : null,
+    bagOptions.map(([s, label]) => h('option', { value: s, selected: s === cur }, label)));
+    return field(l.label, sel);
+  });
+
+  return h('div', { class: 'bag-layout' },
+    h('div', { class: 'stack' },
+      card('Armour', 'Worn items are stored here directly.', h('div', { class: 'equip-row' }, armour)),
+      card('Hands and ammo', 'These point at items in the backpack. Moving items in the backpack keeps these links correct.', h('div', { class: 'grid' }, refs)),
+      extra.length ? card('Other loadout slots', null, h('ul', {}, extra.map(k => h('li', { class: 'mono' }, k + ': ' + JSON.stringify(lo[k]))))) : null),
+    bagUi.sel?.bag === 'Loadout' ? slotPanel(r, templates, commit, { start: 0, end: 5 }) : h('div', { class: 'card empty' }, 'Click an armour slot to edit it.'));
+}
+
+// Editor for the selected slot: fields, move, duplicate, remove, or add when empty.
+function slotPanel(r, templates, commit, pageRange) {
+  const sel = bagUi.sel;
+  if (!sel || !r[sel.bag]) return h('div', { class: 'card empty slot-panel' }, 'Select a slot to edit it.');
+  const inv = r[sel.bag];
+  const item = inv[String(sel.slot)];
+  const where = sel.bag === 'Inventory' ? bagSlotName(sel.slot) : sel.bag === 'Loadout' ? (LOADOUT.find(l => l.key === String(sel.slot))?.label ?? 'Slot ' + sel.slot) : 'Storage slot ' + sel.slot;
+  if (!item) {
+    return h('div', { class: 'card slot-panel' }, h('h3', {}, where), h('p', { class: 'muted' }, 'Empty.'),
+      addItemForm(inv, templates, msg => { bagUi.sel = { ...sel }; commit(msg); }, sel.slot));
+  }
+  const info = itemInfo(item.ItemData);
+  const eq = sel.bag === 'Inventory' ? loadoutRefs(r).filter(x => x.slot === sel.slot) : [];
+  const numeric = keysOf(item).filter(k => k !== 'Count' && typeof num(item[k]) === 'number');
+  const stack = isStackable(item.ItemData) || 'Count' in item;
+
+  const moveIn = h('input', { type: 'number', min: '0', class: 'small', value: String(sel.slot), 'aria-label': 'Move to slot' });
+  return h('div', { class: 'card slot-panel' },
+    h('h3', {}, info ? info.name : 'Unknown item'),
+    h('p', { class: 'muted' }, where + (info ? ' · ' + info.cat : '') + (info?.hint ? ' · ' + info.hint : '')),
+    info?.flags ? h('p', {}, [...info.flags].map(f => h('span', { class: 'tag' }, FLAG_LABELS[f]))) : null,
+    eq.length ? h('p', { class: 'note' }, 'Equipped as ' + eq.map(x => x.label).join(', ') + '.') : null,
+    h('div', { class: 'grid' },
+      stack ? field('Count', numberInput('Count' in item ? num(item.Count) : 1, guard(v => {
+        const n = Math.floor(v);
+        if (n < 1) throw new Error('Count must be 1 or more');
+        if (n === 1) delete item.Count; else item.Count = n;
+        commit('Count set to ' + n);
+      }), { min: '1', step: '1' })) : null,
+      numeric.map(k => field(k, numberInput(num(item[k]), guard(v => { item[k] = v; commit(k + ' updated'); }), { min: '0' })))),
+    sel.bag !== 'Loadout' ? h('div', { class: 'inline-form' },
+      h('label', { class: 'inline' }, 'Move to slot ', moveIn),
+      h('button', {
+        onclick: guard(() => {
+          const to = Math.floor(Number(moveIn.value));
+          if (!(to >= 0)) throw new Error('Slot must be 0 or more');
+          if (sel.bag === 'Inventory') moveBagSlot(r, sel.slot, to);
+          else { const b = inv[String(to)]; if (b) putItem(inv, sel.slot, b); else removeItem(inv, sel.slot); putItem(inv, to, item); }
+          bagUi.sel = { bag: sel.bag, slot: to };
+          commit('Moved to slot ' + to);
+        }),
+      }, 'Move')) : null,
+    h('div', { class: 'actions' },
+      sel.bag !== 'Loadout' ? h('button', {
+        onclick: guard(() => {
+          const s = freeSlotIn(inv, pageRange.start, pageRange.end);
+          putItem(inv, s, cloneItem(item));
+          bagUi.sel = { bag: sel.bag, slot: s };
+          commit('Duplicated into slot ' + s);
+        }),
+      }, 'Duplicate') : null,
+      h('button', {
+        class: 'danger',
+        onclick: guard(() => { if (removeBagSlot(r, sel.bag, sel.slot)) commit('Removed ' + (info ? info.name : 'item')); }),
+      }, 'Remove')),
+    h('p', { class: 'hint mono wrap' }, item.ItemData));
+}
+
+function bagSlotName(slot) {
+  if (slot < HOTBAR_SIZE) return 'Hotbar ' + (slot + 1);
+  const p = BAG_PAGES.find(p => slot >= p.start && slot < p.start + PAGE_SIZE);
+  return p ? p.name + ' slot ' + (slot - p.start + 1) : 'Backpack slot ' + slot;
 }
 
 function viewRaw() {
