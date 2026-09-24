@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dragonwilds Save Editor</title>
+  <meta name="description" content="Edit RuneScape: Dragonwilds world and character saves in your browser. Your files never leave your device.">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="brand">
+      <img src="favicon.svg" alt="" width="36" height="36">
+      <div>
+        <h1>Dragonwilds Save Editor</h1>
+        <p>Worlds and characters for RuneScape: Dragonwilds</p>
+      </div>
+    </div>
+    <p class="privacy-pill" title="The editor runs entirely in your browser">Your save never leaves your device</p>
+  </header>
+
+  <main>
+    <section id="landing">
+      <label id="drop" class="drop" for="file">
+        <input id="file" type="file" accept=".sav,.json,.backup" hidden>
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        </span>
+        <strong>Drop a save file here, or click to choose one</strong>
+        <span>World saves end in <code>.sav</code>. Character saves end in <code>.json</code>.</span>
+      </label>
+
+      <div class="info-grid">
+        <article class="card">
+          <h2>Where your saves live</h2>
+          <p class="sub">On Windows, paste one of these into the File Explorer address bar.</p>
+          <div class="path"><span>Worlds</span><code>%LOCALAPPDATA%\RSDragonwilds\Saved\SaveGames</code><button type="button" data-copy="%LOCALAPPDATA%\RSDragonwilds\Saved\SaveGames">Copy</button></div>
+          <div class="path"><span>Characters</span><code>%LOCALAPPDATA%\RSDragonwilds\Saved\SaveCharacters</code><button type="button" data-copy="%LOCALAPPDATA%\RSDragonwilds\Saved\SaveCharacters">Copy</button></div>
+        </article>
+        <article class="card">
+          <h2>Before you edit</h2>
+          <ol class="steps">
+            <li>Close the game completely.</li>
+            <li>Copy the original file somewhere safe.</li>
+            <li>Edit here, download, then replace the original with the downloaded file (same name).</li>
+            <li>If Steam Cloud restores the old file, turn off Steam Cloud for the game while you swap it in.</li>
+          </ol>
+        </article>
+        <article class="card">
+          <h2>Private by design</h2>
+          <p>The file is read and rewritten by code running in this tab. It is never uploaded, logged or stored. Close the tab and it is gone.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="editor" hidden>
+      <div class="filebar">
+        <div class="file-info">
+          <strong id="file-name"></strong>
+          <span id="file-meta"></span>
+        </div>
+        <span id="dirty" class="dirty" aria-live="polite"></span>
+        <div class="filebar-actions">
+          <button id="reset" type="button">Open another file</button>
+          <button id="download" type="button" class="primary">Download edited save</button>
+        </div>
+      </div>
+      <nav id="tabs" class="tabs" role="tablist"></nav>
+      <div id="panel"></div>
+    </section>
+  </main>
+
+  <footer class="site">
+    <p>Unofficial fan tool. Not affiliated with or endorsed by Jagex. Always keep a backup of your saves.</p>
+  </footer>
+
+  <div id="toasts" aria-live="polite"></div>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
