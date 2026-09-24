@@ -220,7 +220,10 @@ td.item { min-width: 180px; }
 .picked { margin-top: 10px; min-height: 1.5em; }
 [hidden] { display: none !important; }
 
-/* Support link: quiet, footer only */
-footer.site p { margin: 4px 0; }
-.support a { color: var(--muted); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border-bottom: 1px dotted var(--line); }
-.support a:hover { color: var(--gold-2); border-bottom-color: var(--gold); }
+/* Support link: header, quiet but visible */
+.header-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.coffee {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--gold); color: var(--gold-2); background: var(--surface); font-size: .85rem; text-decoration: none;
+}
+.coffee:hover { background: var(--gold); color: var(--on-gold); }
