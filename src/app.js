@@ -3,7 +3,7 @@
 import { parseSave, writeSave } from './spud.js';
 import { WorldSave, typeName, isEditableType, shortClass } from './model.js';
 import { parse as parseJson, stringify as stringifyJson, num, keysOf } from './uejson.js';
-import { slots, putItem, removeItem, cloneItem, firstFreeSlot, itemCatalog, newItemGuid } from './inventory.js';
+import { slots, putItem, removeItem, cloneItem, itemCatalog, newItemGuid } from './inventory.js';
 import { ITEMS, SKILLS } from './catalog.js';
 import { DIFFICULTY_TAGS, DIFFICULTY_MODES } from './data.js';
 
@@ -50,7 +50,11 @@ function changed(msg) {
 
 function guard(fn) {
   return (...args) => {
-    try { return fn(...args); } catch (e) { console.error(e); toast(e.message || String(e), 'error'); }
+    try { return fn(...args); } catch (e) {
+      // Plain Errors are validation messages for the user; anything else is a bug worth logging.
+      if (e?.constructor !== Error) console.error(e);
+      toast(e.message || String(e), 'error');
+    }
   };
 }
 
@@ -67,6 +71,9 @@ async function loadFile(file) {
   state.dirty = 0;
   blobCache = null;
   state.world = state.char = null;
+  // Selections belong to the previous file.
+  Object.assign(bagUi, { view: 'Inventory', page: 0, sel: null });
+  storageUi.open = dataUi.open = advUi.open = null;
   if (buf.length >= 4 && String.fromCharCode(...buf.subarray(0, 4)) === 'SAVE') {
     state.world = new WorldSave(parseSave(buf));
     state.kind = 'world';
@@ -418,7 +425,11 @@ function inventoryEditor(inv, { title, subtitle, catalog, commit }) {
         ? numberInput(num(item[f]), guard(v => { item[f] = v; commit(f + ' updated in slot ' + slot); }), { class: 'small', min: '0' })
         : h('span', { class: 'muted' }, '—'))),
       h('td', {}, h('div', { class: 'row-actions' },
-        h('button', { title: 'Duplicate into the first free slot', onclick: guard(() => { const s = firstFreeSlot(inv); putItem(inv, s, cloneItem(item)); commit('Duplicated into slot ' + s); }) }, 'Duplicate'),
+        h('button', { title: 'Duplicate into the first empty slot', onclick: guard(() => {
+          const s = knownEmptySlots(inv)[0];
+          if (s == null) throw new Error('No empty slot known for this container');
+          putItem(inv, s, cloneItem(item)); commit('Duplicated into slot ' + (s + 1));
+        }) }, 'Duplicate'),
         h('button', { class: 'danger', onclick: guard(() => { removeItem(inv, slot); commit('Removed slot ' + slot); }) }, 'Remove'))),
     )) : h('tr', {}, h('td', { colspan: 4 + numFields.length, class: 'muted' }, 'Empty'))));
 
@@ -441,8 +452,20 @@ function inventoryEditor(inv, { title, subtitle, catalog, commit }) {
     title ? h('h3', {}, title) : null, subtitle ? h('p', { class: 'muted' }, subtitle) : null,
     h('div', { class: 'table-wrap' }, table),
     bulk,
-    addItemForm(inv, catalog, commit),
+    addItemForm(inv, catalog, commit, {
+      choices: knownEmptySlots(inv).map(s => ({ slot: s, label: 'Slot ' + (s + 1) })),
+      none: 'No empty slots are known for this container. Its size in game is not confirmed, so only slots the save already records can be filled.',
+    }),
   );
+}
+
+// Container sizes are not stored in the save. Slots up to MaxSlotIndex (or the highest used
+// slot) are known to exist; anything beyond that might not, so it is never offered.
+function knownEmptySlots(inv) {
+  const top = Math.max(num(inv.MaxSlotIndex) ?? -1, ...slots(inv).map(s => s.slot));
+  const out = [];
+  for (let i = 0; i <= top; i++) if (!(String(i) in inv)) out.push(i);
+  return out;
 }
 
 const EQUIPMENT = new Set(['Weapon/Tool', 'Armour', 'Shield', 'Jewellery']);
@@ -473,8 +496,11 @@ function itemSearchText(id) {
 
 // Add any item from the game catalog. Items already in the file are copied so they keep
 // the game's own fields; others are built from scratch (Count for stacks, optional Durability).
-// fixedSlot: add into that slot instead of letting the user pick one.
-function addItemForm(inv, templates, commit, fixedSlot = null) {
+// target: { slot, label } to fill one slot, or { choices: [{ slot, label }] } of empty slots
+// that exist in game. Items can never be added anywhere else.
+function addItemForm(inv, templates, commit, target) {
+  const choices = target.choices ?? [{ slot: target.slot, label: target.label }];
+  if (!choices.length) return h('p', { class: 'hint' }, target.none ?? 'No empty slots to add an item to.');
   let chosen = null;
   const search = h('input', { type: 'search', placeholder: 'Search items, e.g. rune pickaxe', 'aria-label': 'Search items' });
   const retired = h('input', { type: 'checkbox' });
@@ -482,7 +508,7 @@ function addItemForm(inv, templates, commit, fixedSlot = null) {
   const picked = h('div', { class: 'picked' });
   const qty = h('input', { type: 'number', min: '1', value: '1', class: 'small', 'aria-label': 'Quantity' });
   const dura = h('input', { type: 'number', min: '1', class: 'small', placeholder: 'game default', 'aria-label': 'Durability' });
-  const slotIn = h('input', { type: 'number', min: '0', value: String(fixedSlot ?? firstFreeSlot(inv)), class: 'small', 'aria-label': 'Slot' });
+  const slotIn = h('select', { 'aria-label': 'Slot' }, choices.map(c => h('option', { value: c.slot }, c.label)));
   const qtyField = h('label', { class: 'inline' }, 'Quantity ', qty);
   const duraField = h('label', { class: 'inline' }, 'Durability ', dura);
   const addBtn = h('button', { class: 'primary', disabled: true }, 'Add');
@@ -517,9 +543,9 @@ function addItemForm(inv, templates, commit, fixedSlot = null) {
   search.addEventListener('input', draw);
   retired.addEventListener('change', draw);
   addBtn.addEventListener('click', guard(() => {
-    const s = Math.floor(Number(slotIn.value));
-    if (!(s >= 0)) throw new Error('Slot must be 0 or more');
-    if (String(s) in inv && !confirm('Slot ' + s + ' is occupied. Replace it?')) return;
+    const s = Number(slotIn.value);
+    if (!choices.some(c => c.slot === s)) throw new Error('That slot does not exist in game');
+    if (String(s) in inv) throw new Error('That slot is already in use');
     let item;
     if (templates?.has(chosen)) item = cloneItem(templates.get(chosen));
     else {
@@ -536,14 +562,14 @@ function addItemForm(inv, templates, commit, fixedSlot = null) {
       if (n === 1) delete item.Count; else item.Count = n;
     }
     putItem(inv, s, item);
-    commit('Added ' + itemInfo(chosen).name + ' to slot ' + s);
+    commit('Added ' + itemInfo(chosen).name + ' to ' + choices.find(c => c.slot === s).label);
   }));
   update();
   return h('div', { class: 'add-item' },
-    h('h4', {}, fixedSlot == null ? 'Add an item' : 'Add an item to slot ' + fixedSlot),
+    h('h4', {}, target.choices ? 'Add an item' : 'Add an item to ' + target.label),
     h('div', { class: 'toolbar' }, search, h('label', { class: 'inline' }, retired, ' Include retired items')),
     results, picked,
-    h('div', { class: 'inline-form' }, qtyField, duraField, h('label', { class: 'inline', hidden: fixedSlot != null }, 'Slot ', slotIn), addBtn),
+    h('div', { class: 'inline-form' }, qtyField, duraField, h('label', { class: 'inline', hidden: !target.choices }, 'Slot ', slotIn), addBtn),
     h('p', { class: 'hint' }, 'Items already in this file are copied with their stats. Other equipment is created at the durability you enter, or the game default if left blank. Each new item gets a fresh unique ID.'),
   );
 }
@@ -746,19 +772,18 @@ function viewSkills() {
 
 // ---------------------------------------------------------------------------
 // Character inventory, laid out like the game.
-// Backpack slots: 0-7 hotbar (shared by every page), then four pages of 8x3.
+// Backpack: slots 0-7 are the hotbar (shared by every page). Each page starts on a
+// 24-slot boundary in the save; Items uses all 24, the other pages have 18.
 // Loadout keeps armour directly; hand/ammo slots point at backpack slots.
+// Only slots that exist in game can receive items.
 
 const HOTBAR_SIZE = 8;
-const PAGE_COLS = 8;
-const PAGE_SIZE = 24;
 const BAG_PAGES = [
-  { name: 'Items', start: 8 },
-  { name: 'Runes', start: 32 },
-  { name: 'Ammo', start: 56 },
-  { name: 'Quest items', start: 80 },
+  { name: 'Items', start: 8, size: 24, cols: 8 },
+  { name: 'Runes', start: 32, size: 18, cols: 6 },
+  { name: 'Ammo', start: 56, size: 18, cols: 6 },
+  { name: 'Quest items', start: 80, size: 18, cols: 6 },
 ];
-const BAG_END = 104;
 const LOADOUT = [
   { key: '0', label: 'Head' },
   { key: '1', label: 'Body' },
@@ -776,6 +801,27 @@ const bagUi = { view: 'Inventory', page: 0, sel: null };
 
 const isRef = v => v && typeof v === 'object' && 'PlayerInventoryItemIndex' in v;
 
+// Every slot that exists in game for a bag, in display order, with its label.
+function validSlots(r, bag) {
+  if (bag === 'Inventory') {
+    const out = [];
+    for (let i = 0; i < HOTBAR_SIZE; i++) out.push({ slot: i, label: 'Hotbar ' + (i + 1), page: -1 });
+    BAG_PAGES.forEach((p, pi) => {
+      for (let i = 0; i < p.size; i++) out.push({ slot: p.start + i, label: p.name + ' ' + (i + 1), page: pi });
+    });
+    return out;
+  }
+  if (bag === 'Loadout') return LOADOUT.filter(l => !l.ref).map(l => ({ slot: Number(l.key), label: l.label }));
+  // Personal storage: its in-game size is not known yet, so only slots the save has
+  // already recorded (up to MaxSlotIndex or the highest used slot) are offered.
+  const inv = r[bag];
+  const top = Math.max(num(inv.MaxSlotIndex) ?? -1, ...slots(inv).map(s => s.slot));
+  return Array.from({ length: top + 1 }, (_, i) => ({ slot: i, label: 'Storage ' + (i + 1) }));
+}
+
+const slotLabel = (r, bag, slot) => validSlots(r, bag).find(v => v.slot === slot)?.label ?? 'Slot ' + slot + ' (outside the game\'s slots)';
+const isValidSlot = (r, bag, slot) => validSlots(r, bag).some(v => v.slot === slot);
+
 // Loadout entries pointing into the backpack: [{ key, label, slot }]
 function loadoutRefs(r) {
   const lo = r.Loadout;
@@ -787,15 +833,18 @@ function loadoutRefs(r) {
   }));
 }
 
-// Move or swap two backpack slots, keeping equipped references pointing at the same items.
-function moveBagSlot(r, from, to) {
-  const inv = r.Inventory;
+// Move or swap two slots of a bag. In the backpack, equipped links follow their items.
+function moveSlot(r, bag, from, to) {
   if (from === to) return;
+  if (!isValidSlot(r, bag, to)) throw new Error('That slot does not exist in game');
+  const inv = r[bag];
   const a = inv[String(from)];
   const b = inv[String(to)];
-  if (!a) throw new Error('Slot ' + from + ' is empty');
+  if (!a) throw new Error('That slot is empty');
+  if (b && !isValidSlot(r, bag, from)) throw new Error('Move this item to an empty slot; its current slot does not exist in game');
   if (b) putItem(inv, from, b); else removeItem(inv, from);
   putItem(inv, to, a);
+  if (bag !== 'Inventory') return;
   for (const ref of loadoutRefs(r)) {
     const entry = r.Loadout[ref.key];
     if (ref.slot === from) entry.PlayerInventoryItemIndex = to;
@@ -812,9 +861,24 @@ function removeBagSlot(r, bag, slot) {
   return true;
 }
 
-function freeSlotIn(inv, start, end) {
-  for (let s = start; s < end; s++) if (!(String(s) in inv)) return s;
-  return firstFreeSlot(inv);
+// Backpack page a slot number belongs to (-1 hotbar), including slots past a page's end.
+function pageOfSlot(slot) {
+  if (slot < HOTBAR_SIZE) return -1;
+  return BAG_PAGES.findIndex(p => slot >= p.start && slot < p.start + 24);
+}
+
+// First empty real slot for a copy. Backpack copies stay on their own page
+// (hotbar copies may also use the Items page); other bags use any empty slot.
+function freeValidSlot(r, bag, slot) {
+  const empty = validSlots(r, bag).filter(v => !(String(v.slot) in r[bag]));
+  if (bag !== 'Inventory') return empty[0] ?? null;
+  const page = pageOfSlot(slot);
+  const allowed = page === -1 ? [-1, 0] : [page];
+  for (const pg of allowed) {
+    const hit = empty.find(v => v.page === pg);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function viewCharInventory() {
@@ -842,7 +906,7 @@ function viewCharInventory() {
     body);
 }
 
-function slotButton(r, bag, slot, { label } = {}) {
+function slotButton(r, bag, slot, { label, dropTarget = true } = {}) {
   const inv = r[bag];
   const item = inv[String(slot)];
   const info = item && itemInfo(item.ItemData);
@@ -850,12 +914,14 @@ function slotButton(r, bag, slot, { label } = {}) {
   const selected = bagUi.sel && bagUi.sel.bag === bag && bagUi.sel.slot === slot;
   const count = item && 'Count' in item ? num(item.Count) : null;
   const dur = item && typeof num(item.Durability) === 'number' ? num(item.Durability) : null;
-  const title = item ? (info ? info.name : 'Unknown item') + ' (slot ' + slot + ')' : 'Empty slot ' + slot;
+  const where = slotLabel(r, bag, slot);
+  const title = item ? (info ? info.name : 'Unknown item') + ' · ' + where : where + ' · empty';
   const el = h('button', {
     type: 'button',
-    class: 'slot' + (item ? ' filled' : '') + (selected ? ' selected' : '') + (eq.length ? ' equipped' : ''),
+    class: 'slot' + (item ? ' filled' : '') + (selected ? ' selected' : '') + (eq.length ? ' equipped' : '') + (dropTarget ? '' : ' stray'),
     title: title + (eq.length ? ' · equipped: ' + eq.map(x => x.label).join(', ') : ''),
     'aria-label': title,
+    'data-slot': slot,
     'aria-pressed': String(!!selected),
     draggable: item && bag !== 'Loadout' ? 'true' : null,
     onclick: () => {
@@ -875,6 +941,7 @@ function slotButton(r, bag, slot, { label } = {}) {
     e.dataTransfer.setData('text/plain', JSON.stringify({ bag, slot }));
     e.dataTransfer.effectAllowed = 'move';
   });
+  if (!dropTarget || bag === 'Loadout') return el;
   el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop'); });
   el.addEventListener('dragleave', () => el.classList.remove('drop'));
   el.addEventListener('drop', guard(e => {
@@ -883,14 +950,9 @@ function slotButton(r, bag, slot, { label } = {}) {
     const src = JSON.parse(e.dataTransfer.getData('text/plain') || 'null');
     if (!src || src.bag !== bag || src.slot === slot) return;
     const swapping = String(slot) in inv;
-    if (bag === 'Inventory') moveBagSlot(r, src.slot, slot);
-    else {
-      const a = inv[String(src.slot)], b = inv[String(slot)];
-      if (b) putItem(inv, src.slot, b); else removeItem(inv, src.slot);
-      putItem(inv, slot, a);
-    }
+    moveSlot(r, bag, src.slot, slot);
     bagUi.sel = { bag, slot };
-    changed(swapping ? 'Swapped slots ' + src.slot + ' and ' + slot : 'Moved to slot ' + slot);
+    changed((swapping ? 'Swapped with ' : 'Moved to ') + slotLabel(r, bag, slot));
     render();
   }));
   return el;
@@ -902,32 +964,34 @@ function backpackView(r, templates, commit) {
   const hotbar = h('div', { class: 'slot-grid hotbar' },
     Array.from({ length: HOTBAR_SIZE }, (_, i) => slotButton(r, 'Inventory', i, { label: i + 1 })));
   const tabs = h('div', { class: 'bag-tabs', role: 'tablist' }, BAG_PAGES.map((p, i) => {
-    const used = slots(inv).filter(s => s.slot >= p.start && s.slot < p.start + PAGE_SIZE).length;
+    const used = slots(inv).filter(s => s.slot >= p.start && s.slot < p.start + p.size).length;
     return h('button', {
       role: 'tab', 'aria-selected': String(bagUi.page === i),
-      onclick: () => { bagUi.page = i; render(); },
-    }, p.name, h('span', { class: 'muted' }, ' ' + used + '/' + PAGE_SIZE));
+      onclick: () => { bagUi.page = i; bagUi.sel = null; render(); },
+    }, p.name, h('span', { class: 'muted' }, ' ' + used + '/' + p.size));
   }));
-  const grid = h('div', { class: 'slot-grid page' },
-    Array.from({ length: PAGE_SIZE }, (_, i) => slotButton(r, 'Inventory', page.start + i)));
-  const stray = slots(inv).filter(s => s.slot >= BAG_END);
+  const grid = h('div', { class: 'slot-grid page cols-' + page.cols },
+    Array.from({ length: page.size }, (_, i) => slotButton(r, 'Inventory', page.start + i)));
+  const stray = slots(inv).filter(s => !isValidSlot(r, 'Inventory', s.slot));
   return h('div', { class: 'bag-layout' },
     card('Backpack', 'Drag an item onto another slot to move or swap it. Click a slot to edit it, or to add an item to an empty slot.',
       h('p', { class: 'bag-label' }, 'Hotbar'), hotbar,
       tabs, grid,
-      stray.length ? h('div', {}, h('p', { class: 'bag-label' }, 'Other slots'), h('div', { class: 'slot-grid page' }, stray.map(s => slotButton(r, 'Inventory', s.slot, { label: s.slot })))) : null),
-    slotPanel(r, templates, commit, { start: page.start, end: page.start + PAGE_SIZE }));
+      stray.length ? h('div', { class: 'stray-box' },
+        h('p', { class: 'note' }, stray.length + ' item' + (stray.length === 1 ? ' is' : 's are') + ' stored in slots that don\'t exist in game, so the game may not show ' + (stray.length === 1 ? 'it' : 'them') + '. Move ' + (stray.length === 1 ? 'it' : 'them') + ' into an empty slot or remove ' + (stray.length === 1 ? 'it' : 'them') + '.'),
+        h('div', { class: 'slot-grid page' }, stray.map(s => slotButton(r, 'Inventory', s.slot, { dropTarget: false })))) : null),
+    slotPanel(r, templates, commit));
 }
 
 function storageGridView(r, templates, commit) {
   const inv = r.PersonalInventory;
-  const used = slots(inv).map(s => s.slot);
-  const top = Math.max(num(inv.MaxSlotIndex) ?? -1, ...used, 15);
-  const size = Math.ceil((top + 1) / PAGE_COLS) * PAGE_COLS;
+  const valid = validSlots(r, 'PersonalInventory');
   return h('div', { class: 'bag-layout' },
-    card('Personal storage', 'Laid out in rows of 8. The in-game size of this storage is not confirmed.',
-      h('div', { class: 'slot-grid page' }, Array.from({ length: size }, (_, i) => slotButton(r, 'PersonalInventory', i)))),
-    slotPanel(r, templates, commit, { start: 0, end: size }));
+    card('Personal storage', 'Its size in game is not confirmed yet, so only slots this save already uses are shown.',
+      valid.length
+        ? h('div', { class: 'slot-grid page' }, valid.map(v => slotButton(r, 'PersonalInventory', v.slot)))
+        : h('p', { class: 'muted' }, 'This storage has never been used, so no slots are known yet.')),
+    slotPanel(r, templates, commit));
 }
 
 function loadoutView(r, templates, commit) {
@@ -935,12 +999,11 @@ function loadoutView(r, templates, commit) {
   const inv = r.Inventory ?? {};
   const known = new Set(LOADOUT.map(l => l.key));
   const extra = keysOf(lo).filter(k => /^\d+$/.test(k) && !known.has(k));
-  const bagOptions = slots(inv).map(s => [s.slot, (itemInfo(s.item.ItemData)?.name ?? 'Unknown') + ' (slot ' + s.slot + ')']);
+  const bagOptions = slots(inv).filter(s => isValidSlot(r, 'Inventory', s.slot))
+    .map(s => [s.slot, (itemInfo(s.item.ItemData)?.name ?? 'Unknown') + ' (' + slotLabel(r, 'Inventory', s.slot) + ')']);
 
-  const armour = LOADOUT.filter(l => !l.ref).map(l => {
-    const b = slotButton(r, 'Loadout', Number(l.key), {});
-    return h('div', { class: 'equip-slot' }, h('span', { class: 'bag-label' }, l.label), b);
-  });
+  const armour = LOADOUT.filter(l => !l.ref).map(l =>
+    h('div', { class: 'equip-slot' }, h('span', { class: 'bag-label' }, l.label), slotButton(r, 'Loadout', Number(l.key))));
   const refs = LOADOUT.filter(l => l.ref).map(l => {
     const cur = isRef(lo[l.key]) ? num(lo[l.key].PlayerInventoryItemIndex) : null;
     const sel = h('select', {
@@ -949,10 +1012,10 @@ function loadoutView(r, templates, commit) {
         const v = e.target.value;
         if (v === '') removeItem(lo, Number(l.key));
         else putItem(lo, Number(l.key), { PlayerInventoryItemIndex: Number(v) });
-        commit(l.label + (v === '' ? ' cleared' : ' set to slot ' + v));
+        commit(l.label + (v === '' ? ' cleared' : ' set to ' + slotLabel(r, 'Inventory', Number(v))));
       }),
     }, h('option', { value: '' }, 'Nothing'),
-    cur != null && !(String(cur) in inv) ? h('option', { value: cur, selected: true }, 'Empty slot ' + cur + ' (broken link)') : null,
+    cur != null && !bagOptions.some(([s]) => s === cur) ? h('option', { value: cur, selected: true }, 'Slot ' + cur + ' (broken link)') : null,
     bagOptions.map(([s, label]) => h('option', { value: s, selected: s === cur }, label)));
     return field(l.label, sel);
   });
@@ -962,30 +1025,40 @@ function loadoutView(r, templates, commit) {
       card('Armour', 'Worn items are stored here directly.', h('div', { class: 'equip-row' }, armour)),
       card('Hands and ammo', 'These point at items in the backpack. Moving items in the backpack keeps these links correct.', h('div', { class: 'grid' }, refs)),
       extra.length ? card('Other loadout slots', null, h('ul', {}, extra.map(k => h('li', { class: 'mono' }, k + ': ' + JSON.stringify(lo[k]))))) : null),
-    bagUi.sel?.bag === 'Loadout' ? slotPanel(r, templates, commit, { start: 0, end: 5 }) : h('div', { class: 'card empty' }, 'Click an armour slot to edit it.'));
+    bagUi.sel?.bag === 'Loadout' ? slotPanel(r, templates, commit) : h('div', { class: 'card empty' }, 'Click an armour slot to edit it.'));
 }
 
 // Editor for the selected slot: fields, move, duplicate, remove, or add when empty.
-function slotPanel(r, templates, commit, pageRange) {
+function slotPanel(r, templates, commit) {
   const sel = bagUi.sel;
   if (!sel || !r[sel.bag]) return h('div', { class: 'card empty slot-panel' }, 'Select a slot to edit it.');
   const inv = r[sel.bag];
   const item = inv[String(sel.slot)];
-  const where = sel.bag === 'Inventory' ? bagSlotName(sel.slot) : sel.bag === 'Loadout' ? (LOADOUT.find(l => l.key === String(sel.slot))?.label ?? 'Slot ' + sel.slot) : 'Storage slot ' + sel.slot;
+  const where = slotLabel(r, sel.bag, sel.slot);
+  const valid = isValidSlot(r, sel.bag, sel.slot);
   if (!item) {
+    if (!valid) return h('div', { class: 'card empty slot-panel' }, 'Select a slot to edit it.');
     return h('div', { class: 'card slot-panel' }, h('h3', {}, where), h('p', { class: 'muted' }, 'Empty.'),
-      addItemForm(inv, templates, msg => { bagUi.sel = { ...sel }; commit(msg); }, sel.slot));
+      addItemForm(inv, templates, msg => { bagUi.sel = { ...sel }; commit(msg); }, { slot: sel.slot, label: where }));
   }
   const info = itemInfo(item.ItemData);
   const eq = sel.bag === 'Inventory' ? loadoutRefs(r).filter(x => x.slot === sel.slot) : [];
   const numeric = keysOf(item).filter(k => k !== 'Count' && typeof num(item[k]) === 'number');
   const stack = isStackable(item.ItemData) || 'Count' in item;
 
-  const moveIn = h('input', { type: 'number', min: '0', class: 'small', value: String(sel.slot), 'aria-label': 'Move to slot' });
+  // Move targets: every real slot except this one; occupied ones swap (only allowed from a real slot).
+  const home = sel.bag === 'Inventory' ? pageOfSlot(sel.slot) : null;
+  const targets = validSlots(r, sel.bag).filter(v => v.slot !== sel.slot && (valid || !(String(v.slot) in inv)))
+    .sort((x, y) => (valid ? 0 : (y.page === home) - (x.page === home)));
+  const moveSel = h('select', { 'aria-label': 'Move to' }, targets.map(v => {
+    const other = inv[String(v.slot)];
+    return h('option', { value: v.slot }, v.label + (other ? ' (swap with ' + (itemInfo(other.ItemData)?.name ?? 'item') + ')' : ''));
+  }));
   return h('div', { class: 'card slot-panel' },
     h('h3', {}, info ? info.name : 'Unknown item'),
     h('p', { class: 'muted' }, where + (info ? ' · ' + info.cat : '') + (info?.hint ? ' · ' + info.hint : '')),
     info?.flags ? h('p', {}, [...info.flags].map(f => h('span', { class: 'tag' }, FLAG_LABELS[f]))) : null,
+    valid ? null : h('p', { class: 'note' }, 'This slot does not exist in game. Move the item to a real slot or remove it.'),
     eq.length ? h('p', { class: 'note' }, 'Equipped as ' + eq.map(x => x.label).join(', ') + '.') : null,
     h('div', { class: 'grid' },
       stack ? field('Count', numberInput('Count' in item ? num(item.Count) : 1, guard(v => {
@@ -995,25 +1068,29 @@ function slotPanel(r, templates, commit, pageRange) {
         commit('Count set to ' + n);
       }), { min: '1', step: '1' })) : null,
       numeric.map(k => field(k, numberInput(num(item[k]), guard(v => { item[k] = v; commit(k + ' updated'); }), { min: '0' })))),
-    sel.bag !== 'Loadout' ? h('div', { class: 'inline-form' },
-      h('label', { class: 'inline' }, 'Move to slot ', moveIn),
+    sel.bag !== 'Loadout' && targets.length ? h('div', { class: 'move-form' },
+      field('Move to', moveSel),
       h('button', {
         onclick: guard(() => {
-          const to = Math.floor(Number(moveIn.value));
-          if (!(to >= 0)) throw new Error('Slot must be 0 or more');
-          if (sel.bag === 'Inventory') moveBagSlot(r, sel.slot, to);
-          else { const b = inv[String(to)]; if (b) putItem(inv, sel.slot, b); else removeItem(inv, sel.slot); putItem(inv, to, item); }
+          const to = Number(moveSel.value);
+          moveSlot(r, sel.bag, sel.slot, to);
           bagUi.sel = { bag: sel.bag, slot: to };
-          commit('Moved to slot ' + to);
+          const vp = validSlots(r, sel.bag).find(v => v.slot === to)?.page;
+          if (sel.bag === 'Inventory' && vp >= 0) bagUi.page = vp;
+          commit('Moved to ' + slotLabel(r, sel.bag, to));
         }),
       }, 'Move')) : null,
     h('div', { class: 'actions' },
       sel.bag !== 'Loadout' ? h('button', {
         onclick: guard(() => {
-          const s = freeSlotIn(inv, pageRange.start, pageRange.end);
-          putItem(inv, s, cloneItem(item));
-          bagUi.sel = { bag: sel.bag, slot: s };
-          commit('Duplicated into slot ' + s);
+          const free = freeValidSlot(r, sel.bag, sel.slot);
+          if (!free) {
+            const pg = sel.bag === 'Inventory' ? pageOfSlot(sel.slot) : null;
+            throw new Error(pg == null ? 'No empty slot left' : (pg === -1 ? 'The hotbar and Items page are' : 'The ' + BAG_PAGES[pg].name + ' page is') + ' full');
+          }
+          putItem(inv, free.slot, cloneItem(item));
+          bagUi.sel = { bag: sel.bag, slot: free.slot };
+          commit('Duplicated into ' + free.label);
         }),
       }, 'Duplicate') : null,
       h('button', {
@@ -1021,12 +1098,6 @@ function slotPanel(r, templates, commit, pageRange) {
         onclick: guard(() => { if (removeBagSlot(r, sel.bag, sel.slot)) commit('Removed ' + (info ? info.name : 'item')); }),
       }, 'Remove')),
     h('p', { class: 'hint mono wrap' }, item.ItemData));
-}
-
-function bagSlotName(slot) {
-  if (slot < HOTBAR_SIZE) return 'Hotbar ' + (slot + 1);
-  const p = BAG_PAGES.find(p => slot >= p.start && slot < p.start + PAGE_SIZE);
-  return p ? p.name + ' slot ' + (slot - p.start + 1) : 'Backpack slot ' + slot;
 }
 
 function viewRaw() {
