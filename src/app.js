@@ -104,9 +104,8 @@ function loadBytes(buf, name, { isNew = false } = {}) {
     state.kind = 'character';
     state.tab = 'character';
   }
-  $('#landing').hidden = true;
-  $('#editor').hidden = false;
   render();
+  go('edit');
 }
 
 function buildOutput() {
@@ -144,9 +143,47 @@ function download() {
 function reset() {
   if ((state.dirty || state.isNew) && !confirm('Discard your unsaved edits?')) return;
   Object.assign(state, { kind: null, world: null, char: null, server: null, building: null, original: null, dirty: 0, isNew: false });
-  $('#editor').hidden = true;
-  $('#landing').hidden = false;
   $('#file').value = '';
+  go('');
+}
+
+// ---------------------------------------------------------------------------
+// Routing: each page has its own address so Back, links and bookmarks work.
+// Leaving the editor keeps the open file; the home page offers to continue.
+
+const ROUTES = { '': 'landing', edit: 'editor', tools: 'page-tools', mods: 'page-mods' };
+const TITLES = { '': 'Dragonwilds Save Editor', edit: 'Editing', tools: 'Tools', mods: 'WillyWonky Mods' };
+
+function currentRoute() {
+  const r = (/^#\/?([a-z]*)/.exec(location.hash) ?? [])[1] ?? '';
+  return r in ROUTES ? r : '';
+}
+
+function go(r) {
+  const target = '#/' + r;
+  if (location.hash === target || (!location.hash && r === '')) route();
+  else location.hash = target;
+}
+
+function route() {
+  let r = currentRoute();
+  if (r === 'edit' && !state.kind) {
+    history.replaceState(null, '', '#/');
+    r = '';
+  }
+  for (const [k, id] of Object.entries(ROUTES)) $('#' + id).hidden = k !== r;
+  const navKey = r === '' || r === 'edit' ? 'home' : r;
+  for (const a of document.querySelectorAll('.site-nav a')) {
+    if (a.dataset.route === navKey) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  }
+  const resume = $('#resume');
+  resume.hidden = !(r === '' && state.kind);
+  if (!resume.hidden) {
+    $('#resume-name').textContent = state.fileName;
+    $('#resume-dirty').textContent = state.isNew ? ' (new, not downloaded yet)' : state.dirty ? ' with ' + state.dirty + ' unsaved change' + (state.dirty === 1 ? '' : 's') : '';
+  }
+  document.title = (r === 'edit' && state.fileName ? state.fileName + ' · ' : r ? TITLES[r] + ' · ' : '') + 'Dragonwilds Save Editor';
+  window.scrollTo(0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,6 +1562,9 @@ function init() {
   $('#download').addEventListener('click', guard(download));
   for (const b of document.querySelectorAll('[data-template]')) b.addEventListener('click', guard(() => openTemplate(b.dataset.template)));
   $('#reset').addEventListener('click', reset);
+  $('#resume-close').addEventListener('click', reset);
+  window.addEventListener('hashchange', route);
+  route();
   window.addEventListener('beforeunload', e => { if (state.dirty || state.isNew) { e.preventDefault(); e.returnValue = ''; } });
   for (const b of document.querySelectorAll('[data-copy]')) {
     b.addEventListener('click', () => {

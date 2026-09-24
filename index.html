@@ -7,17 +7,17 @@
   <meta name="description" content="Edit RuneScape: Dragonwilds world and character saves in your browser. Your files never leave your device.">
   <meta name="color-scheme" content="dark light">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=19">
+  <link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
   <header class="site">
-    <div class="brand">
+    <a class="brand" href="#/" title="Home">
       <img src="favicon.svg" alt="" width="36" height="36">
       <div>
         <h1>Dragonwilds Save Editor</h1>
         <p>Worlds and characters for RuneScape: Dragonwilds</p>
       </div>
-    </div>
+    </a>
     <div class="header-links">
       <p class="privacy-pill" title="The editor runs entirely in your browser">Your save never leaves your device</p>
       <a class="coffee" href="https://buymeacoffee.com/oogaboogacode" target="_blank" rel="noopener" title="Support this tool">
@@ -26,30 +26,29 @@
     </div>
   </header>
 
+  <nav class="site-nav" aria-label="Main">
+    <a href="#/" data-route="home">Save Editor</a>
+    <a href="#/tools" data-route="tools">Tools</a>
+    <a href="#/mods" data-route="mods">WillyWonky Mods</a>
+  </nav>
+
   <main>
     <section id="landing">
+      <div id="resume" class="resume" hidden>
+        <span>You have <strong id="resume-name"></strong> open<span id="resume-dirty"></span>.</span>
+        <a class="button primary" href="#/edit">Continue editing</a>
+        <button id="resume-close" type="button">Close it</button>
+      </div>
+
       <label id="drop" class="drop" for="file">
         <input id="file" type="file" accept=".sav,.json,.backup,.ini" hidden>
         <span class="drop-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
         </span>
         <strong>Drop a save file here, or click to choose one</strong>
-        <span>World saves end in <code>.sav</code>, character saves in <code>.json</code>, and dedicated server settings are <code>DedicatedServer.ini</code>.</span>
+        <span>World saves end in <code>.sav</code>, character saves in <code>.json</code>. Server files (<code>DedicatedServer.ini</code>, <code>BuildingSettings.ini</code>) open here too.</span>
       </label>
-
-      <section class="templates" aria-labelledby="tpl-title">
-        <h2 id="tpl-title">No file? Start from a template</h2>
-        <div class="template-grid">
-          <button type="button" class="template" data-template="server">
-            <strong>Dedicated server settings</strong>
-            <span>A new DedicatedServer.ini: server name, world, password, players and crossplay.</span>
-          </button>
-          <button type="button" class="template" data-template="building">
-            <strong>Protection totem limit</strong>
-            <span>A new BuildingSettings.ini for your dedicated server to change how many protection totems can be placed.</span>
-          </button>
-        </div>
-      </section>
+      <p class="pointer">Setting up a dedicated server with no files yet? Start from a template in <a href="#/tools">Tools</a>.</p>
 
       <div class="info-grid">
         <article class="card">
@@ -77,6 +76,7 @@
     </section>
 
     <section id="editor" hidden>
+      <a class="back-link" href="#/">&larr; Home</a>
       <div class="filebar">
         <div class="file-info">
           <strong id="file-name"></strong>
@@ -84,12 +84,44 @@
         </div>
         <span id="dirty" class="dirty" aria-live="polite"></span>
         <div class="filebar-actions">
-          <button id="reset" type="button">Open another file</button>
+          <button id="reset" type="button">Close file</button>
           <button id="download" type="button" class="primary">Download edited save</button>
         </div>
       </div>
       <nav id="tabs" class="tabs" role="tablist"></nav>
       <div id="panel"></div>
+    </section>
+
+    <section id="page-tools" hidden>
+      <div class="page-head">
+        <h2>Tools</h2>
+        <p class="sub">Create files from scratch, without bringing anything in. Everything is made in your browser.</p>
+      </div>
+      <section class="tool-group" aria-labelledby="tools-server">
+        <h3 id="tools-server">Dedicated server</h3>
+        <div class="template-grid">
+          <button type="button" class="template" data-template="server">
+            <strong>Dedicated server settings</strong>
+            <span>A new DedicatedServer.ini: server name, world, password, players and crossplay.</span>
+          </button>
+          <button type="button" class="template" data-template="building">
+            <strong>Protection totem limit</strong>
+            <span>A new BuildingSettings.ini to change how many protection totems can be placed.</span>
+          </button>
+        </div>
+        <p class="hint">Save these in the server's <code>RSDragonwilds\Saved\Config\WindowsServer</code> folder, then restart the server.</p>
+      </section>
+      <section class="tool-group" aria-labelledby="tools-saves">
+        <h3 id="tools-saves">Saves</h3>
+        <p>World and character saves are created by the game. To edit one, open it from the <a href="#/">Save Editor</a>.</p>
+      </section>
+    </section>
+
+    <section id="page-mods" hidden>
+      <div class="page-head">
+        <h2>WillyWonky Mods</h2>
+        <p class="sub">Coming soon.</p>
+      </div>
     </section>
   </main>
 
@@ -98,6 +130,6 @@
   </footer>
 
   <div id="toasts" aria-live="polite"></div>
-  <script type="module" src="src/app.js?v=19"></script>
+  <script type="module" src="src/app.js?v=20"></script>
 </body>
 </html>

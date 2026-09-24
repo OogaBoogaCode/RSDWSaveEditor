@@ -24,7 +24,9 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 - Known players: rename, ban/unban, privilege mask, add by user ID, remove
 - Raw file; unknown keys, comments and ordering are preserved, and the file keeps its encoding (UTF-16 when it holds non-ASCII names, as Unreal writes it)
 
-**Templates** (no upload needed)
+**Pages**: Save Editor (`#/`, editing at `#/edit`), Tools (`#/tools`) and WillyWonky Mods (`#/mods`). Each has its own address, so Back and bookmarks work; leaving the editor keeps the open file and the home page offers to continue.
+
+**Templates** on the Tools page (no upload needed)
 - New `DedicatedServer.ini` with defaults; the first player added becomes the owner, and the server fills in its own ServerGuid
 - New `BuildingSettings.ini` to change the protection totem limit (confirmed on a dedicated server; sets `MaximumBuildingProtectionTotems` and the totem entry of `PieceTagToMaxCountMap`, as in the game's DefaultBuildingSettings.ini)
 
