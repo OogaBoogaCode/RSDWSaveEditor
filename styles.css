@@ -349,3 +349,7 @@ a.button.primary { background: var(--gold); color: var(--on-gold); border-color:
 .switch-row input { margin-top: 3px; }
 .switch-row small { display: block; color: var(--muted); }
 .note.warn { border-left-color: var(--danger); }
+.cvar-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--bg); }
+.cvar-title { margin: 0 0 8px; }
+.cvar-lines { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--surface-2); font-family: var(--mono); font-size: .85rem; overflow-x: auto; }
+.cvar-box.off .cvar-lines { opacity: .6; }

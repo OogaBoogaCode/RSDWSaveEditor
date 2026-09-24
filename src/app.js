@@ -1543,8 +1543,15 @@ function viewEngine() {
         h('span', {}, h('strong', {}, 'Load the entire world into memory'),
           h('small', {}, 'Turns off server world streaming, so every area stays loaded instead of loading around players.'))),
       h('p', { class: 'note warn' }, 'This uses around 7–8 GB of RAM before any players join. Make sure the server has that memory to spare on top of what players need.'),
-      h('dl', { class: 'facts' },
-        STREAMING_VARS.map((k, i) => fact(k, values[i] ?? 'not set (game default)')))),
+      // Show exactly which lines this switch writes, and whether the file has them.
+      h('div', { class: 'cvar-box' + (fullWorld ? '' : ' off') },
+        h('p', { class: 'cvar-title' }, fullWorld
+          ? ['These lines load the entire world into memory. They are in your Engine.ini under ', h('code', {}, '[' + CVARS + ']'), ':']
+          : ['Switching on adds these lines to Engine.ini under ', h('code', {}, '[' + CVARS + ']'), ' to load the entire world into memory:']),
+        h('pre', { class: 'cvar-lines' }, '[' + CVARS + ']\n' + STREAMING_VARS.map(k => k + '=0').join('\n')),
+        !fullWorld && values.some(v => v !== undefined)
+          ? h('p', { class: 'hint' }, 'Currently in the file: ' + STREAMING_VARS.map((k, i) => k + '=' + (values[i] ?? '(not set)')).join(', ') + '.')
+          : null)),
     otherVars.length ? card('Other console variables', 'Kept as written. Edit them on the Raw file tab.',
       h('dl', { class: 'facts' }, otherVars.map(k => fact(k, doc.get(CVARS, k))))) : null,
   );
