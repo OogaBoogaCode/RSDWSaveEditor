@@ -26,7 +26,7 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 
 **Templates** (no upload needed)
 - New `DedicatedServer.ini` with defaults; the first player added becomes the owner, and the server fills in its own ServerGuid
-- New `BuildingSettings.ini` to change the protection totem limit (experimental: sets `MaximumBuildingProtectionTotems` and the totem entry of `PieceTagToMaxCountMap`, as in the game's DefaultBuildingSettings.ini)
+- New `BuildingSettings.ini` to change the protection totem limit (confirmed on a dedicated server; sets `MaximumBuildingProtectionTotems` and the totem entry of `PieceTagToMaxCountMap`, as in the game's DefaultBuildingSettings.ini)
 
 ## Format notes
 

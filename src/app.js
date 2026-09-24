@@ -1427,7 +1427,7 @@ function viewBuilding() {
 
   return h('div', { class: 'stack' },
     card('Protection totems', 'Totems stop other players building near them. This file overrides the game\'s default limit.',
-      h('p', { class: 'note' }, 'Experimental: not yet confirmed that the server reads this file. Save it as BuildingSettings.ini in the same folder as DedicatedServer.ini, restart the server, and check the limit in game.'),
+      h('p', { class: 'note' }, 'Save this as BuildingSettings.ini in the same folder as DedicatedServer.ini (RSDragonwilds\\Saved\\Config\\WindowsServer), then restart the server.'),
       h('div', { class: 'grid' },
         field('Limit totems', h('input', {
           type: 'checkbox', checked: limited,
