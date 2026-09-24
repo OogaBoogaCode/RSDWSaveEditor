@@ -74,6 +74,11 @@ export class IniDoc {
     this.#insertAtSectionEnd(section, { type: 'kv', section, op: '', key, value: String(value), dirty: true });
   }
 
+  // Remove every line of a key from a section.
+  remove(section, key) {
+    this.lines = this.lines.filter(l => !(l.type === 'kv' && l.section === section && l.key === key));
+  }
+
   // Replace every line of a repeated key (e.g. KnownPlayerList) with the given values,
   // keeping them where the first one was.
   setList(section, key, values) {

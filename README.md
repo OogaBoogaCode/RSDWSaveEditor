@@ -20,7 +20,7 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 - Raw JSON
 
 **Dedicated server settings** (`DedicatedServer.ini`)
-- Server name, world to load, world password, max players, platforms, owner, crash reports
+- Server name, world to load, world password, max players (with recommended RAM: 2 GB + 1 GB per player), crossplay on/off (off removes PlatformPolicy), owner, crash reports
 - Known players: rename, ban/unban, privilege mask, add by user ID, remove
 - Raw file; unknown keys, comments and ordering are preserved, and the file keeps its encoding (UTF-16 when it holds non-ASCII names, as Unreal writes it)
 

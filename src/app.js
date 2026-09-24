@@ -1165,9 +1165,22 @@ function viewServer() {
   const pw = h('input', { type: 'password', value: get('WorldPassword') ?? '', autocomplete: 'off', onchange: guard(e => set('WorldPassword', e.target.value, e.target.value ? 'Password updated' : 'Password removed')) });
   const showPw = h('label', { class: 'inline' }, h('input', { type: 'checkbox', onchange: e => { pw.type = e.target.checked ? 'text' : 'password'; } }), ' Show');
 
+  // Crossplay is on when PlatformPolicy=Crossplay and off when the line is absent.
   const policy = get('PlatformPolicy');
-  const policies = ['Crossplay'];
-  if (policy && !policies.includes(policy)) policies.push(policy);
+  const policies = [['Crossplay', 'On (all platforms)'], ['', 'Off']];
+  if (policy && policy !== 'Crossplay') policies.push([policy, policy]);
+
+  // Recommended memory: 2 GB for the server plus 1 GB per player.
+  const ramHint = h('span', { class: 'hint' });
+  const showRam = n => { ramHint.textContent = Number.isInteger(n) && n > 0 ? 'Recommended server RAM: 2 GB + ' + n + ' GB (1 GB per player) = ' + (2 + n) + ' GB.' : 'Recommended server RAM: 2 GB + 1 GB per player.'; };
+  const maxPlayers = Number(get('MaxPlayers') ?? 6);
+  showRam(maxPlayers);
+  const maxInput = numberInput(maxPlayers, guard(v => {
+    if (!Number.isInteger(v) || v < 1) throw new Error('Max players must be a whole number, 1 or more');
+    set('MaxPlayers', v, 'Max players set to ' + v);
+    if (v > 6) toast('Dragonwilds is built for up to 6 players; higher values may not be honoured.', 'info');
+  }), { min: '1', step: '1' });
+  maxInput.addEventListener('input', () => showRam(Number(maxInput.value)));
 
   const owner = get('OwnerId');
   const ownerSel = h('select', {
@@ -1194,15 +1207,16 @@ function viewServer() {
           render();
         })), 'The world save file name without .sav, e.g. ' + (get('DefaultWorldName') || 'MyWorld') + ' for ' + (get('DefaultWorldName') || 'MyWorld') + '.sav'),
         field('World password', h('div', { class: 'inline-form tight' }, pw, showPw), 'Leave empty for no password.'),
-        field('Max players', numberInput(Number(get('MaxPlayers') ?? 6), guard(v => {
-          if (!Number.isInteger(v) || v < 1) throw new Error('Max players must be a whole number, 1 or more');
-          set('MaxPlayers', v, 'Max players set to ' + v);
-          if (v > 6) toast('Dragonwilds is built for up to 6 players; higher values may not be honoured.', 'info');
-        }), { min: '1', step: '1' })),
-        field('Platforms', h('select', {
-          onchange: guard(e => set('PlatformPolicy', e.target.value, 'Platforms set to ' + e.target.value)),
-        }, policies.map(p => h('option', { value: p, selected: p === policy }, p === 'Crossplay' ? 'Crossplay (all platforms)' : p))),
-        'Only Crossplay has been seen so far.'),
+        h('div', { class: 'field' }, h('span', { class: 'label' }, 'Max players'), maxInput, ramHint),
+        field('Crossplay', h('select', {
+          'aria-label': 'Crossplay',
+          onchange: guard(e => {
+            const v = e.target.value;
+            if (v === '') { doc.remove(SERVER, 'PlatformPolicy'); changed('Crossplay off'); }
+            else set('PlatformPolicy', v, v === 'Crossplay' ? 'Crossplay on' : 'Platforms set to ' + v);
+          }),
+        }, policies.map(([v, label]) => h('option', { value: v, selected: v === (policy ?? '') }, label))),
+        'Off removes the PlatformPolicy line from the file.'),
         field('Owner', ownerSel, 'Must be a player from the Players tab.'),
         field('Send crash reports', h('input', {
           type: 'checkbox', checked: /^true$/i.test(crash ?? 'True'),
