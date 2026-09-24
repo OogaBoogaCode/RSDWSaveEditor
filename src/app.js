@@ -83,6 +83,7 @@ function loadBytes(buf, name, { isNew = false } = {}) {
   storageUi.open = dataUi.open = advUi.open = null;
   if (buf.length >= 4 && String.fromCharCode(...buf.subarray(0, 4)) === 'SAVE') {
     state.world = new WorldSave(parseSave(buf));
+    state.worldLoadedName = state.world.getSetting('WorldSlotName') ?? null;
     state.kind = 'world';
     state.tab = 'world';
   } else if (loadServer(buf)) {
@@ -117,9 +118,17 @@ function buildOutput() {
 }
 
 // Characters are stored as "<char_name>.json", so the download follows the current name.
+// Worlds are stored as "<WorldSlotName>.sav", so a renamed world downloads under its new name too.
 function outputFileName() {
-  const name = state.kind === 'character' ? state.char.json.meta_data?.char_name : null;
-  return name ? name + '.json' : state.fileName;
+  if (state.kind === 'character') {
+    const name = state.char.json.meta_data?.char_name;
+    return name ? name + '.json' : state.fileName;
+  }
+  if (state.kind === 'world') {
+    const slot = state.world.getSetting('WorldSlotName');
+    return slot ? slot + '.sav' : state.fileName;
+  }
+  return state.fileName;
 }
 
 // Characters that can't appear in a Windows file name.
@@ -280,14 +289,27 @@ function viewWorld() {
     if (setting) w.setSetting(setting, settingValue);
   };
 
+  const oldName = state.worldLoadedName;
+  const renamed = oldName && w.getSetting('WorldSlotName') !== oldName;
   return h('div', { class: 'stack' },
     card('World settings', 'Stored twice in the file (load-screen header and world state). The editor keeps both copies in sync.',
+      renamed ? h('p', { class: 'note' },
+        'Renamed: this world now downloads as ', h('strong', {}, outputFileName()),
+        '. After copying it into SaveGames, delete ', h('strong', {}, oldName + '.sav'), ' and ', h('strong', {}, oldName + '.sav.backup'),
+        ' so the world is not listed twice. If a dedicated server loads this world, set its World to load (DefaultWorldName) to ',
+        h('strong', {}, w.getSetting('WorldSlotName')), '.') : null,
       h('div', { class: 'grid' },
         field('World name', textInput(hv('WorldName') ?? '', guard(v => {
-          if (!v.trim()) throw new Error('World name cannot be empty');
-          setBoth('WorldName', 'WorldName', v);
-          changed('World renamed');
-        })), 'Display name only. The file name stays the same.'),
+          const name = v.trim();
+          if (!name) throw new Error('World name cannot be empty');
+          if (BAD_FILE_CHARS.test(name) || /\.$/.test(name)) throw new Error('World names cannot contain < > : " / \\ | ? * or end with a dot');
+          if (name === hv('WorldName')) return;
+          // The game keeps the display name, slot name and file name identical.
+          setBoth('WorldName', 'WorldName', name);
+          w.setSetting('WorldSlotName', name);
+          changed('World renamed. Downloads as ' + outputFileName());
+          render();
+        })), 'The downloaded file is named after the world, as the game expects.'),
         field('Difficulty mode', h('select', {
           onchange: guard(e => { const v = Number(e.target.value); setBoth('SurvivalDifficulty', 'SurvivalDifficulty', v); changed('Difficulty mode updated'); render(); }),
         }, ...modeOptions(mode)), 'Custom mode makes the game read the values on the Difficulty tab.'),
