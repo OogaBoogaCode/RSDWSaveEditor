@@ -98,7 +98,7 @@ footer.site { text-align: center; color: var(--muted); font-size: .85rem; paddin
 .note { background: var(--surface-2); border-left: 3px solid var(--gold); padding: 10px 12px; border-radius: 6px; margin: 0 0 16px; }
 .error { color: var(--danger); }
 .wrap { overflow-wrap: anywhere; }
-input[type=text], input[type=number], input[type=search], select, textarea {
+input[type=text], input[type=number], input[type=search], input[type=password], select, textarea {
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; width: 100%;
 }
 input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--gold); }
@@ -277,3 +277,10 @@ td.item { min-width: 180px; }
 .stray-box { margin-top: 16px; }
 .stray-box .slot-grid { margin-top: 8px; }
 .move-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin-top: 14px; }
+
+/* Server settings */
+.inline-form.tight { margin-top: 0; flex-wrap: nowrap; }
+input[readonly] { opacity: .75; }
+h4.sub-head { margin: 20px 0 4px; font-family: var(--serif); font-size: 1.05rem; }
+.add-player { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; }
+@media (max-width: 600px) { .add-player { grid-template-columns: 1fr; } }

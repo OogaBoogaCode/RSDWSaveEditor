@@ -5,6 +5,7 @@ import { WorldSave, typeName, isEditableType, shortClass } from './model.js';
 import { parse as parseJson, stringify as stringifyJson, num, keysOf } from './uejson.js';
 import { slots, putItem, removeItem, cloneItem, itemCatalog, newItemGuid } from './inventory.js';
 import { ITEMS, SKILLS } from './catalog.js';
+import { IniDoc, decodeIni, encodeIni, parseStruct, stringifyStruct, structGet, structSet } from './ini.js';
 import { DIFFICULTY_TAGS, DIFFICULTY_MODES } from './data.js';
 
 const $ = sel => document.querySelector(sel);
@@ -70,7 +71,7 @@ async function loadFile(file) {
   state.original = buf;
   state.dirty = 0;
   blobCache = null;
-  state.world = state.char = null;
+  state.world = state.char = state.server = null;
   // Selections belong to the previous file.
   Object.assign(bagUi, { view: 'Inventory', page: 0, sel: null });
   storageUi.open = dataUi.open = advUi.open = null;
@@ -78,12 +79,15 @@ async function loadFile(file) {
     state.world = new WorldSave(parseSave(buf));
     state.kind = 'world';
     state.tab = 'world';
+  } else if (loadServer(buf)) {
+    state.kind = 'server';
+    state.tab = 'server';
   } else {
     let text = new TextDecoder('utf-8').decode(buf);
     state.bom = text.charCodeAt(0) === 0xfeff;
     if (state.bom) text = text.slice(1);
     if (!text.trimStart().startsWith('{')) {
-      throw new Error('This is not a Dragonwilds world (.sav) or character (.json) save.');
+      throw new Error('This is not a Dragonwilds world (.sav), character (.json) or DedicatedServer.ini file.');
     }
     const json = parseJson(text);
     if (!json.meta_data && !json.GameProgress && !json.Skills) throw new Error('This JSON file does not look like a Dragonwilds character save.');
@@ -99,6 +103,7 @@ async function loadFile(file) {
 
 function buildOutput() {
   if (state.kind === 'world') return writeSave(state.world.root);
+  if (state.kind === 'server') return encodeIni(state.server.doc.toString(), state.server.encoding).bytes;
   const text = (state.bom ? '﻿' : '') + stringifyJson(state.char.json);
   return new TextEncoder().encode(text);
 }
@@ -126,7 +131,7 @@ function download() {
 
 function reset() {
   if (state.dirty && !confirm('Discard your unsaved edits?')) return;
-  Object.assign(state, { kind: null, world: null, char: null, original: null, dirty: 0 });
+  Object.assign(state, { kind: null, world: null, char: null, server: null, original: null, dirty: 0 });
   $('#editor').hidden = true;
   $('#landing').hidden = false;
   $('#file').value = '';
@@ -142,6 +147,11 @@ const WORLD_TABS = [
   ['data', 'Stations & Data'],
   ['advanced', 'Advanced'],
 ];
+const SERVER_TABS = [
+  ['server', 'Server'],
+  ['players', 'Players'],
+  ['rawini', 'Raw file'],
+];
 const CHAR_TABS = [
   ['character', 'Character'],
   ['skills', 'Skills'],
@@ -152,7 +162,7 @@ const CHAR_TABS = [
 function updateBar() {
   const out = outputFileName();
   $('#file-name').textContent = state.fileName;
-  $('#file-meta').textContent = (state.kind === 'world' ? 'World save' : 'Character save') + ' · ' + fmtBytes(state.original.length) +
+  $('#file-meta').textContent = ({ world: 'World save', character: 'Character save', server: 'Server settings' }[state.kind]) + ' · ' + fmtBytes(state.original.length) +
     (out !== state.fileName ? ' · downloads as ' + out : '');
   $('#dirty').textContent = state.dirty ? state.dirty + ' change' + (state.dirty === 1 ? '' : 's') + ' not yet downloaded' : 'No changes yet';
   $('#dirty').classList.toggle('has', !!state.dirty);
@@ -160,7 +170,7 @@ function updateBar() {
 
 function render() {
   updateBar();
-  const tabs = state.kind === 'world' ? WORLD_TABS : CHAR_TABS;
+  const tabs = { world: WORLD_TABS, character: CHAR_TABS, server: SERVER_TABS }[state.kind];
   const nav = $('#tabs');
   nav.replaceChildren(...tabs.map(([id, label]) =>
     h('button', { role: 'tab', 'aria-selected': String(state.tab === id), class: 'tab', onclick: () => { state.tab = id; render(); } }, label)));
@@ -169,6 +179,7 @@ function render() {
   const views = {
     world: viewWorld, difficulty: viewDifficulty, storage: viewStorage, data: viewData, advanced: viewAdvanced,
     character: viewCharacter, skills: viewSkills, inventory: viewCharInventory, raw: viewRaw,
+    server: viewServer, players: viewPlayers, rawini: viewRawIni,
   };
   try {
     panel.append(views[state.tab]());
@@ -1108,6 +1119,190 @@ function viewRaw() {
       state.char = { json, root: json.GameProgress ?? json, loadedName: state.char.loadedName };
       changed('Raw JSON applied');
     }));
+}
+
+// ---------------------------------------------------------------------------
+// Dedicated server config (DedicatedServer.ini)
+
+const SERVER = '/Script/Dominion.DedicatedServerSettings';
+const SERVER_KNOWN = ['KnownPlayerList', 'PlatformPolicy', 'MaxPlayers', 'OwnerId', 'WorldPassword', 'ServerName', 'DefaultWorldName', 'ServerGuid', 'bAllowSendingCrashDumps'];
+const PLAYER_ID = /^[0-9a-fA-F]{32}$/;
+
+function loadServer(buf) {
+  const { text, encoding } = decodeIni(buf);
+  if (!text.includes('[' + SERVER + ']')) return false;
+  state.server = { doc: new IniDoc(text), encoding };
+  readPlayers();
+  return true;
+}
+
+// Player entries as parsed structs; entries we cannot parse are kept verbatim.
+function readPlayers() {
+  state.server.players = state.server.doc.entries(SERVER, 'KnownPlayerList').map(e => {
+    try { return { fields: parseStruct(e.value) }; } catch { return { raw: e.value }; }
+  });
+}
+
+function writePlayers() {
+  state.server.doc.setList(SERVER, 'KnownPlayerList', state.server.players.map(p => (p.raw ?? stringifyStruct(p.fields))));
+}
+
+const playerName = p => (p.fields ? structGet(p.fields, ['UserName']) ?? '' : '');
+const playerId = p => (p.fields ? structGet(p.fields, ['UserId']) ?? '' : '');
+
+// Unreal writes booleans as True/False; keep whatever casing the file already uses.
+function boolText(current, on) {
+  const lower = current === 'true' || current === 'false';
+  return lower ? String(on) : on ? 'True' : 'False';
+}
+
+function viewServer() {
+  const doc = state.server.doc;
+  const get = k => doc.get(SERVER, k);
+  const set = (k, v, msg) => { doc.set(SERVER, k, v); changed(msg); };
+  const players = state.server.players.filter(p => p.fields);
+
+  const pw = h('input', { type: 'password', value: get('WorldPassword') ?? '', autocomplete: 'off', onchange: guard(e => set('WorldPassword', e.target.value, e.target.value ? 'Password updated' : 'Password removed')) });
+  const showPw = h('label', { class: 'inline' }, h('input', { type: 'checkbox', onchange: e => { pw.type = e.target.checked ? 'text' : 'password'; } }), ' Show');
+
+  const policy = get('PlatformPolicy');
+  const policies = ['Crossplay'];
+  if (policy && !policies.includes(policy)) policies.push(policy);
+
+  const owner = get('OwnerId');
+  const ownerSel = h('select', {
+    onchange: guard(e => set('OwnerId', e.target.value, 'Owner set to ' + e.target.selectedOptions[0].textContent)),
+  },
+  owner && !players.some(p => playerId(p) === owner) ? h('option', { value: owner, selected: true }, owner + ' (not in player list)') : null,
+  players.map(p => h('option', { value: playerId(p), selected: playerId(p) === owner }, playerName(p) || playerId(p))));
+
+  const extra = doc.keys(SERVER).filter(k => !SERVER_KNOWN.includes(k));
+  const crash = get('bAllowSendingCrashDumps');
+
+  return h('div', { class: 'stack' },
+    card('Server', 'Settings from DedicatedServer.ini. Restart the server after replacing the file.',
+      h('div', { class: 'grid' },
+        field('Server name', textInput(get('ServerName') ?? '', guard(v => {
+          if (!v.trim()) throw new Error('Server name cannot be empty');
+          set('ServerName', v.trim(), 'Server name updated');
+        }))),
+        field('World to load', textInput(get('DefaultWorldName') ?? '', guard(v => {
+          const name = v.trim().replace(/\.sav$/i, '');
+          if (!name) throw new Error('World name cannot be empty');
+          if (BAD_FILE_CHARS.test(name)) throw new Error('World names cannot contain < > : " / \\ | ? *');
+          set('DefaultWorldName', name, 'World set to ' + name);
+          render();
+        })), 'The world save file name without .sav, e.g. ' + (get('DefaultWorldName') || 'MyWorld') + ' for ' + (get('DefaultWorldName') || 'MyWorld') + '.sav'),
+        field('World password', h('div', { class: 'inline-form tight' }, pw, showPw), 'Leave empty for no password.'),
+        field('Max players', numberInput(Number(get('MaxPlayers') ?? 6), guard(v => {
+          if (!Number.isInteger(v) || v < 1) throw new Error('Max players must be a whole number, 1 or more');
+          set('MaxPlayers', v, 'Max players set to ' + v);
+          if (v > 6) toast('Dragonwilds is built for up to 6 players; higher values may not be honoured.', 'info');
+        }), { min: '1', step: '1' })),
+        field('Platforms', h('select', {
+          onchange: guard(e => set('PlatformPolicy', e.target.value, 'Platforms set to ' + e.target.value)),
+        }, policies.map(p => h('option', { value: p, selected: p === policy }, p === 'Crossplay' ? 'Crossplay (all platforms)' : p))),
+        'Only Crossplay has been seen so far.'),
+        field('Owner', ownerSel, 'Must be a player from the Players tab.'),
+        field('Send crash reports', h('input', {
+          type: 'checkbox', checked: /^true$/i.test(crash ?? 'True'),
+          onchange: e => set('bAllowSendingCrashDumps', boolText(crash, e.target.checked), 'Crash reports ' + (e.target.checked ? 'on' : 'off')),
+        })),
+        field('Server ID', h('input', { type: 'text', value: get('ServerGuid') ?? '', readonly: true, class: 'mono' }), 'Read-only. Changing it could make the server look like a different one.'),
+      )),
+    extra.length ? card('Other settings', 'Keys this editor does not know about. They are kept as written; edit with care.',
+      h('div', { class: 'grid' }, extra.map(k => field(k, textInput(get(k) ?? '', guard(v => set(k, v, k + ' updated'))))))) : null,
+  );
+}
+
+function viewPlayers() {
+  const doc = state.server.doc;
+  const players = state.server.players;
+  const owner = doc.get(SERVER, 'OwnerId');
+  const commit = msg => { writePlayers(); changed(msg); render(); };
+
+  const rows = players.map((p, i) => {
+    if (!p.fields) return h('tr', {}, h('td', { colspan: 5, class: 'mono wrap muted' }, 'Unreadable entry, kept as is: ' + p.raw));
+    const id = playerId(p);
+    const mask = structGet(p.fields, ['Privileges', 'PrivilegeMask']);
+    const banned = /^true$/i.test(structGet(p.fields, ['bIsBanned']) ?? 'False');
+    return h('tr', {},
+      h('td', {}, textInput(playerName(p), guard(v => {
+        if (!v.trim()) throw new Error('Name cannot be empty');
+        structSet(p.fields, ['UserName'], v.trim(), { quoted: true });
+        commit('Name updated');
+      }), { 'aria-label': 'Name' }), id === owner ? h('span', { class: 'tag' }, 'owner') : null),
+      h('td', { class: 'mono id' }, id),
+      h('td', {}, numberInput(Number(mask ?? 0), guard(v => {
+        if (!Number.isInteger(v) || v < 0) throw new Error('Privilege mask must be a whole number, 0 or more');
+        structSet(p.fields, ['Privileges', 'PrivilegeMask'], v);
+        commit('Privileges updated');
+      }), { class: 'small', min: '0', step: '1', 'aria-label': 'Privilege mask' })),
+      h('td', {}, h('input', {
+        type: 'checkbox', checked: banned, 'aria-label': 'Banned',
+        onchange: guard(e => {
+          if (e.target.checked && id === owner) { e.target.checked = false; throw new Error('The owner cannot be banned'); }
+          structSet(p.fields, ['bIsBanned'], boolText(structGet(p.fields, ['bIsBanned']), e.target.checked));
+          commit((playerName(p) || 'Player') + (e.target.checked ? ' banned' : ' unbanned'));
+        }),
+      })),
+      h('td', {}, h('button', {
+        class: 'danger',
+        onclick: guard(() => {
+          if (id === owner) throw new Error('Choose a different owner on the Server tab before removing this player');
+          if (!confirm('Remove ' + (playerName(p) || id) + ' from the known players?')) return;
+          players.splice(i, 1);
+          commit('Player removed');
+        }),
+      }, 'Remove')));
+  });
+
+  const nameIn = h('input', { type: 'text', placeholder: 'Player name', 'aria-label': 'New player name' });
+  const idIn = h('input', { type: 'text', placeholder: '32-character user ID', class: 'mono', 'aria-label': 'New player ID' });
+  const template = players.find(p => p.fields);
+  const add = h('div', { class: 'add-player' }, nameIn, idIn, h('button', {
+    onclick: guard(() => {
+      const name = nameIn.value.trim();
+      const id = idIn.value.trim().toLowerCase();
+      if (!name) throw new Error('Enter a player name');
+      if (!PLAYER_ID.test(id)) throw new Error('User IDs are 32 characters of 0-9 and a-f');
+      if (players.some(p => playerId(p).toLowerCase() === id)) throw new Error('That player is already listed');
+      const mask = template ? structGet(template.fields, ['Privileges', 'PrivilegeMask']) : '14';
+      players.push({ fields: [
+        { key: 'UserId', value: id },
+        { key: 'UserName', value: name, quoted: true },
+        { key: 'Privileges', struct: [{ key: 'PrivilegeMask', value: String(mask ?? 14) }] },
+        { key: 'bIsBanned', value: 'False' },
+      ] });
+      commit(name + ' added');
+    }),
+  }, 'Add player'));
+
+  return card('Players', 'Everyone the server knows about. Ban or unban players, rename them, or add someone by their user ID.',
+    h('div', { class: 'table-wrap' }, h('table', { class: 'slots' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'User ID'), h('th', {}, 'Privilege mask'), h('th', {}, 'Banned'), h('th', {}, ''))),
+      h('tbody', {}, rows.length ? rows : h('tr', {}, h('td', { colspan: 5, class: 'muted' }, 'No players yet.'))))),
+    h('h4', { class: 'sub-head' }, 'Add a player'), add,
+    h('p', { class: 'hint' }, 'Privilege mask: everyone in files seen so far has 14. What each value allows is not confirmed, so change it only if you know what you need.'));
+}
+
+function viewRawIni() {
+  const ta = h('textarea', { class: 'code', spellcheck: 'false', rows: 22 });
+  ta.value = state.server.doc.toString().replace(/\r\n/g, '\n');
+  const status = h('span', { class: 'hint' });
+  return card('Raw file', 'The whole DedicatedServer.ini as text.',
+    h('div', { class: 'json-editor' }, ta, h('div', { class: 'actions' },
+      h('button', {
+        class: 'primary',
+        onclick: guard(() => {
+          const text = ta.value.replace(/\r?\n/g, state.server.doc.eol);
+          if (!text.includes('[' + SERVER + ']')) throw new Error('The [' + SERVER + '] section is missing');
+          state.server.doc = new IniDoc(text);
+          readPlayers();
+          changed('Raw file applied');
+          status.textContent = 'Applied.';
+        }),
+      }, 'Apply'), status)));
 }
 
 // ---------------------------------------------------------------------------

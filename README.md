@@ -19,6 +19,11 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 - Backpack, personal storage and equipped items
 - Raw JSON
 
+**Dedicated server settings** (`DedicatedServer.ini`)
+- Server name, world to load, world password, max players, platforms, owner, crash reports
+- Known players: rename, ban/unban, privilege mask, add by user ID, remove
+- Raw file; unknown keys, comments and ordering are preserved, and the file keeps its encoding (UTF-16 when it holds non-ASCII names, as Unreal writes it)
+
 ## Format notes
 
 World saves are [SPUD](https://github.com/sinbad/SPUD) (Steve's Persistent Unreal Data) chunk files with Dragonwilds-specific additions:
@@ -40,6 +45,7 @@ src/spud.js       chunk tree parse/write
 src/model.js      class defs, property decode/patch, world settings, difficulty
 src/uejson.js     Unreal-style JSON parse/stringify
 src/inventory.js  slot helpers
+src/ini.js        DedicatedServer.ini parse/write
 src/data.js       difficulty tag list
 src/catalog.js    item/skill names (generated)
 src/app.js        UI
