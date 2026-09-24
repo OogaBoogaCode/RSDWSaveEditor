@@ -289,3 +289,5 @@ h4.sub-head { margin: 20px 0 4px; font-family: var(--serif); font-size: 1.05rem;
   .info-grid .card:first-child { grid-column: span 2; }
   .info-grid .card:first-child ~ .card:last-child { grid-column: 1 / -1; }
 }
+.hint-block { display: grid; }
+.hint.ram { color: var(--text); font-weight: 600; }

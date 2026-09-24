@@ -1171,8 +1171,9 @@ function viewServer() {
   if (policy && policy !== 'Crossplay') policies.push([policy, policy]);
 
   // Recommended memory: 2 GB for the server plus 1 GB per player.
-  const ramHint = h('span', { class: 'hint' });
-  const showRam = n => { ramHint.textContent = Number.isInteger(n) && n > 0 ? 'Recommended server RAM: 2 GB + ' + n + ' GB (1 GB per player) = ' + (2 + n) + ' GB.' : 'Recommended server RAM: 2 GB + 1 GB per player.'; };
+  const ramTotal = h('span', { class: 'hint ram' });
+  const ramHint = h('span', { class: 'hint-block' }, ramTotal, h('span', { class: 'hint' }, '2 GB + 1 GB per player'));
+  const showRam = n => { ramTotal.textContent = 'Recommended RAM: ' + (Number.isInteger(n) && n > 0 ? (2 + n) + ' GB' : '2 GB + 1 GB per player'); };
   const maxPlayers = Number(get('MaxPlayers') ?? 6);
   showRam(maxPlayers);
   const maxInput = numberInput(maxPlayers, guard(v => {
