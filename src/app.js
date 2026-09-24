@@ -6,6 +6,7 @@ import { parse as parseJson, stringify as stringifyJson, num, keysOf } from './u
 import { slots, putItem, removeItem, cloneItem, itemCatalog, newItemGuid } from './inventory.js';
 import { ITEMS, SKILLS } from './catalog.js';
 import { $, h, fill } from './dom.js';
+import { XP_FOR_LEVEL, MAX_LEVEL, levelForXp } from './xp.js';
 import { IniDoc, decodeIni, encodeIni, parseStruct, stringifyStruct, structGet, structSet } from './ini.js';
 import { DIFFICULTY_TAGS, DIFFICULTY_MODES } from './data.js';
 
@@ -904,23 +905,51 @@ function viewCharacter() {
 function viewSkills() {
   const skills = charPath('Skills', 'Skills');
   if (!Array.isArray(skills)) return card('Skills', 'No skills found in this save.');
-  const all = h('input', { type: 'number', min: '0', value: '', placeholder: 'XP', class: 'small' });
-  return card('Skills', 'Total XP per skill. The game works out levels from XP.',
-    h('div', { class: 'table-wrap' }, h('table', { class: 'slots' },
-      h('thead', {}, h('tr', {}, h('th', {}, 'Skill'), h('th', {}, 'XP'))),
-      h('tbody', {}, skills.map((s, i) => h('tr', {},
-        h('td', { class: 'item', title: s.Id }, h('div', { class: 'item-name' }, SKILLS[s.Id] ?? 'Unknown skill'), SKILLS[s.Id] ? null : h('div', { class: 'item-sub mono' }, s.Id)),
-        h('td', {}, numberInput(num(s.Xp), guard(v => {
-          if (v < 0 || !Number.isInteger(v)) throw new Error('XP must be a whole number, 0 or more');
-          s.Xp = v; changed('XP updated');
-        }), { min: '0', step: '1' }))))))),
-    h('div', { class: 'inline-form' }, h('span', {}, 'Set every skill to'), all, h('span', {}, 'XP'),
+
+  const setXp = (s, xp, msg) => {
+    if (!Number.isInteger(xp) || xp < 0) throw new Error('XP must be a whole number, 0 or more');
+    s.Xp = xp;
+    changed(msg);
+    render();
+  };
+  const levelSelect = (value, onPick, label) => h('select', { class: 'level-select', 'aria-label': label, onchange: guard(e => onPick(Number(e.target.value))) },
+    Array.from({ length: MAX_LEVEL }, (_, i) => h('option', { value: i + 1, selected: i + 1 === value }, i + 1)));
+
+  const rows = skills.map(s => {
+    const xp = Math.floor(Number(num(s.Xp)) || 0);
+    const level = levelForXp(xp);
+    const name = SKILLS[s.Id] ?? 'Unknown skill';
+    const next = level < MAX_LEVEL ? XP_FOR_LEVEL[level + 1] : null;
+    return h('tr', {},
+      h('td', { class: 'item', title: s.Id }, h('div', { class: 'item-name' }, name), SKILLS[s.Id] ? null : h('div', { class: 'item-sub mono' }, s.Id)),
+      h('td', {}, levelSelect(level, lv => setXp(s, XP_FOR_LEVEL[lv], name + ' set to level ' + lv + ' (' + XP_FOR_LEVEL[lv].toLocaleString() + ' XP)'), name + ' level')),
+      h('td', {}, numberInput(xp, guard(v => setXp(s, v, name + ' set to ' + v.toLocaleString() + ' XP (level ' + levelForXp(v) + ')')), { min: '0', step: '1', 'aria-label': name + ' XP' })),
+      h('td', { class: 'muted small-text' }, next == null ? 'Max level' : (next - xp).toLocaleString() + ' XP to level ' + (level + 1)));
+  });
+
+  // Bulk: every skill to a level, or to an exact XP amount.
+  const allLevel = levelSelect(MAX_LEVEL, () => {}, 'Level for every skill');
+  const allXp = h('input', { type: 'number', min: '0', step: '1', placeholder: 'XP', class: 'small', 'aria-label': 'XP for every skill' });
+  return card('Skills', 'Set a level and the XP is filled in from the game\'s experience table, or type an exact XP amount. Level 99 starts at 1,000,000 XP; XP can go higher.',
+    h('div', { class: 'table-wrap' }, h('table', { class: 'slots skills-table' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Skill'), h('th', {}, 'Level'), h('th', {}, 'XP'), h('th', {}, 'Next level'))),
+      h('tbody', {}, rows))),
+    h('div', { class: 'inline-form' }, h('span', {}, 'Set every skill to level'), allLevel,
       h('button', {
         onclick: guard(() => {
-          const v = Math.floor(Number(all.value));
-          if (!(v >= 0)) throw new Error('Enter an XP value');
+          const lv = Number(allLevel.value);
+          skills.forEach(s => { s.Xp = XP_FOR_LEVEL[lv]; });
+          changed('All skills set to level ' + lv + ' (' + XP_FOR_LEVEL[lv].toLocaleString() + ' XP)');
+          render();
+        }),
+      }, 'Apply')),
+    h('div', { class: 'inline-form' }, h('span', {}, 'or to exactly'), allXp, h('span', {}, 'XP'),
+      h('button', {
+        onclick: guard(() => {
+          const v = Number(allXp.value);
+          if (allXp.value === '' || !Number.isInteger(v) || v < 0) throw new Error('Enter a whole XP amount, 0 or more');
           skills.forEach(s => { s.Xp = v; });
-          changed('All skills set to ' + v.toLocaleString() + ' XP');
+          changed('All skills set to ' + v.toLocaleString() + ' XP (level ' + levelForXp(v) + ')');
           render();
         }),
       }, 'Apply')));

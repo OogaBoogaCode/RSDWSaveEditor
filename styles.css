@@ -392,3 +392,8 @@ footer.site a { color: var(--gold-2); }
 @media (prefers-color-scheme: light) { :root { --chart: #9a6b12; } }
 .chart-tip[data-edge=start] { transform: translate(-12%, -110%); }
 .chart-tip[data-edge=end] { transform: translate(-88%, -110%); }
+
+/* Skills */
+.level-select { width: 84px; }
+.small-text { font-size: .85rem; }
+.skills-table td { white-space: nowrap; }
