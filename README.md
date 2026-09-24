@@ -14,9 +14,11 @@ The editor is a static site with no build step. A few small Vercel functions in 
 - Advanced: every stored object and property
 
 **Character saves** (`%LOCALAPPDATA%\RSDragonwilds\Saved\SaveCharacters\*.json`)
-- Name, hardcore flag, vitals
-- Skill XP
-- Backpack, personal storage and equipped items
+- Name (the downloaded file is renamed to match), hardcore flag, vitals
+- Skills by name: set a level (1-99, XP filled in from the experience table in `src/xp.js`) or an exact XP amount
+- Backpack laid out like the game (hotbar plus Items, Runes, Ammo and Quest pages of 24), with drag-to-move; equipped armour and hand/ammo links, kept in step when items move
+- Equipment durability with each item's range (max durability from game data) and "Repair to full"; new equipment starts at full durability
+- Personal storage
 - Raw JSON
 
 **Dedicated server settings** (`DedicatedServer.ini`)

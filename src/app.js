@@ -4,7 +4,7 @@ import { parseSave, writeSave } from './spud.js';
 import { WorldSave, typeName, isEditableType, shortClass } from './model.js';
 import { parse as parseJson, stringify as stringifyJson, num, keysOf } from './uejson.js';
 import { slots, putItem, removeItem, cloneItem, itemCatalog, newItemGuid } from './inventory.js';
-import { ITEMS, SKILLS } from './catalog.js';
+import { ITEMS, SKILLS, MAX_DURABILITY } from './catalog.js';
 import { $, h, fill } from './dom.js';
 import { XP_FOR_LEVEL, MAX_LEVEL, levelForXp } from './xp.js';
 import { IniDoc, decodeIni, encodeIni, parseStruct, stringifyStruct, structGet, structSet } from './ini.js';
@@ -579,7 +579,8 @@ function inventoryEditor(inv, { title, subtitle, catalog, commit }) {
       itemCell(item.ItemData),
       anyStack ? countCell(item, slot) : null,
       ...numFields.map(f => h('td', {}, typeof num(item[f]) === 'number'
-        ? numberInput(num(item[f]), guard(v => { item[f] = v; commit(f + ' updated in slot ' + slot); }), { class: 'small', min: '0' })
+        ? h('span', { class: 'dur-cell' }, numberInput(num(item[f]), guard(v => { item[f] = f === 'Durability' ? checkDurability(item.ItemData, String(v)) : v; commit(f + ' updated in slot ' + slot); }), { class: 'small', min: '0' }),
+            f === 'Durability' && maxDurability(item.ItemData) != null ? h('span', { class: 'hint' }, ' / ' + maxDurability(item.ItemData).toLocaleString()) : null)
         : h('span', { class: 'muted' }, '—'))),
       h('td', {}, h('div', { class: 'row-actions' },
         h('button', { title: 'Duplicate into the first empty slot', onclick: guard(() => {
@@ -633,6 +634,19 @@ function itemInfo(id) {
   return r ? { id, name: r[0], cat: r[1], flags: r[2] || '', hint: r[3] || '' } : null;
 }
 
+// Max durability from game data; null for items without durability (capes, cosmetics).
+function maxDurability(id) {
+  return MAX_DURABILITY[id] ?? null;
+}
+
+function checkDurability(id, raw) {
+  const max = maxDurability(id);
+  const v = Number(raw);
+  if (raw === '' || raw == null || !Number.isInteger(v) || v < 0) throw new Error('Durability must be a whole number, 0 or more');
+  if (max != null && v > max) throw new Error('Durability for this item goes up to ' + max.toLocaleString());
+  return v;
+}
+
 function isStackable(id) {
   const i = itemInfo(id);
   return !!i && !EQUIPMENT.has(i.cat);
@@ -664,10 +678,11 @@ function addItemForm(inv, templates, commit, target) {
   const results = h('div', { class: 'item-results', role: 'listbox' });
   const picked = h('div', { class: 'picked' });
   const qty = h('input', { type: 'number', min: '1', value: '1', class: 'small', 'aria-label': 'Quantity' });
-  const dura = h('input', { type: 'number', min: '1', class: 'small', placeholder: 'game default', 'aria-label': 'Durability' });
+  const dura = h('input', { type: 'number', min: '0', step: '1', class: 'small', 'aria-label': 'Durability' });
+  const duraMax = h('span', { class: 'hint' });
   const slotIn = h('select', { 'aria-label': 'Slot' }, choices.map(c => h('option', { value: c.slot }, c.label)));
   const qtyField = h('label', { class: 'inline' }, 'Quantity ', qty);
-  const duraField = h('label', { class: 'inline' }, 'Durability ', dura);
+  const duraField = h('label', { class: 'inline' }, 'Durability ', dura, duraMax);
   const addBtn = h('button', { class: 'primary', disabled: true }, 'Add');
 
   const all = Object.keys(ITEMS);
@@ -694,7 +709,14 @@ function addItemForm(inv, templates, commit, target) {
     const i = chosen && itemInfo(chosen);
     addBtn.disabled = !i;
     qtyField.hidden = !i || !isStackable(chosen);
-    duraField.hidden = !i || !EQUIPMENT.has(i.cat) || !!templates?.has(chosen);
+    // Equipment with durability always gets a value, starting at the item's maximum (full).
+    const maxD = i ? maxDurability(chosen) : null;
+    duraField.hidden = !i || (maxD == null && !(EQUIPMENT.has(i.cat) && !templates?.has(chosen)));
+    if (i) {
+      dura.max = maxD ?? '';
+      dura.value = maxD ?? '';
+      duraMax.textContent = maxD != null ? ' / ' + maxD.toLocaleString() : ' (max unknown)';
+    }
     fill(picked, i ? ['Selected: ', h('strong', {}, i.name), ' ', h('span', { class: 'muted' }, '(' + i.cat + ')')] : null);
   };
   search.addEventListener('input', draw);
@@ -704,15 +726,8 @@ function addItemForm(inv, templates, commit, target) {
     if (!choices.some(c => c.slot === s)) throw new Error('That slot does not exist in game');
     if (String(s) in inv) throw new Error('That slot is already in use');
     let item;
-    if (templates?.has(chosen)) item = cloneItem(templates.get(chosen));
-    else {
-      item = { GUID: newItemGuid(), ItemData: chosen };
-      if (EQUIPMENT.has(itemInfo(chosen).cat) && dura.value !== '') {
-        const d = Math.floor(Number(dura.value));
-        if (!(d >= 1)) throw new Error('Durability must be 1 or more');
-        item.Durability = d;
-      }
-    }
+    item = templates?.has(chosen) ? cloneItem(templates.get(chosen)) : { GUID: newItemGuid(), ItemData: chosen };
+    if (!duraField.hidden) item.Durability = checkDurability(chosen, dura.value);
     if (isStackable(chosen)) {
       const n = Math.floor(Number(qty.value));
       if (!(n >= 1)) throw new Error('Quantity must be 1 or more');
@@ -727,7 +742,7 @@ function addItemForm(inv, templates, commit, target) {
     h('div', { class: 'toolbar' }, search, h('label', { class: 'inline' }, retired, ' Include retired items')),
     results, picked,
     h('div', { class: 'inline-form' }, qtyField, duraField, h('label', { class: 'inline', hidden: !target.choices }, 'Slot ', slotIn), addBtn),
-    h('p', { class: 'hint' }, 'Items already in this file are copied with their stats. Other equipment is created at the durability you enter, or the game default if left blank. Each new item gets a fresh unique ID.'),
+    h('p', { class: 'hint' }, 'Equipment starts at full durability; change it if you like. Items already in this file are copied with their other stats. Each new item gets a fresh unique ID.'),
   );
 }
 
@@ -1230,7 +1245,9 @@ function slotPanel(r, templates, commit) {
   }
   const info = itemInfo(item.ItemData);
   const eq = sel.bag === 'Inventory' ? loadoutRefs(r).filter(x => x.slot === sel.slot) : [];
-  const numeric = keysOf(item).filter(k => k !== 'Count' && typeof num(item[k]) === 'number');
+  const numeric = keysOf(item).filter(k => k !== 'Count' && k !== 'Durability' && typeof num(item[k]) === 'number');
+  const maxD = maxDurability(item.ItemData);
+  const hasDur = 'Durability' in item;
   const stack = isStackable(item.ItemData) || 'Count' in item;
 
   // Move targets: every real slot except this one; occupied ones swap (only allowed from a real slot).
@@ -1254,6 +1271,14 @@ function slotPanel(r, templates, commit) {
         if (n === 1) delete item.Count; else item.Count = n;
         commit('Count set to ' + n);
       }), { min: '1', step: '1' })) : null,
+      maxD != null || hasDur ? h('div', { class: 'field' },
+        h('span', { class: 'label' }, 'Durability'),
+        h('div', { class: 'dur-row' },
+          numberInput(hasDur ? num(item.Durability) : '', guard(v => { item.Durability = checkDurability(item.ItemData, String(v)); commit('Durability set to ' + v); }),
+            { min: '0', step: '1', max: maxD ?? undefined, 'aria-label': 'Durability' }),
+          maxD != null ? h('button', { onclick: guard(() => { item.Durability = maxD; commit('Repaired to full (' + maxD.toLocaleString() + ')'); }) }, 'Repair to full') : null),
+        h('span', { class: 'hint' }, maxD != null ? 'Range 0 to ' + maxD.toLocaleString() + ' (full).' : 'Maximum not known for this item.'),
+        !hasDur ? h('span', { class: 'hint warn-text' }, 'No durability is saved for this item, so the game may show -1. Set a value or repair it to full.') : null) : null,
       numeric.map(k => field(k, numberInput(num(item[k]), guard(v => { item[k] = v; commit(k + ' updated'); }), { min: '0' })))),
     sel.bag !== 'Loadout' && targets.length ? h('div', { class: 'move-form' },
       field('Move to', moveSel),

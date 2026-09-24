@@ -397,3 +397,9 @@ footer.site a { color: var(--gold-2); }
 .level-select { width: 84px; }
 .small-text { font-size: .85rem; }
 .skills-table td { white-space: nowrap; }
+
+/* Durability */
+.dur-row { display: flex; gap: 8px; align-items: center; }
+.dur-row input { flex: 1; min-width: 0; }
+.dur-cell { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.warn-text { color: var(--danger); }
