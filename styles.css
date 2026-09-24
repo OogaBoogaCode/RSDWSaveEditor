@@ -304,3 +304,12 @@ h4.sub-head { margin: 20px 0 4px; font-family: var(--serif); font-size: 1.05rem;
 .ai-table input[type=number] { width: 80px; padding: 4px 8px; }
 .ai-cell:not(.on) input[type=number] { opacity: .45; }
 .privs { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+
+/* Templates */
+.templates { margin-top: 20px; }
+.templates h2 { font-size: 1.1rem; margin-bottom: 10px; }
+.template-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.template { display: grid; gap: 4px; text-align: left; padding: 14px 16px; white-space: normal; background: var(--surface); }
+.template strong { font-family: var(--serif); font-size: 1.05rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.template span { color: var(--muted); font-size: .9rem; }
+.template em.tag { font-style: normal; }

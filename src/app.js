@@ -66,12 +66,18 @@ const fmtNum = v => (typeof v === 'number' && !Number.isInteger(v) ? +v.toFixed(
 // Loading
 
 async function loadFile(file) {
-  const buf = new Uint8Array(await file.arrayBuffer());
-  state.fileName = file.name;
+  loadBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+  toast('Loaded ' + file.name, 'ok');
+}
+
+// isNew: a file created from a template, not yet downloaded.
+function loadBytes(buf, name, { isNew = false } = {}) {
+  state.fileName = name;
   state.original = buf;
   state.dirty = 0;
+  state.isNew = isNew;
   blobCache = null;
-  state.world = state.char = state.server = null;
+  state.world = state.char = state.server = state.building = null;
   // Selections belong to the previous file.
   Object.assign(bagUi, { view: 'Inventory', page: 0, sel: null });
   storageUi.open = dataUi.open = advUi.open = null;
@@ -82,12 +88,15 @@ async function loadFile(file) {
   } else if (loadServer(buf)) {
     state.kind = 'server';
     state.tab = 'server';
+  } else if (loadBuilding(buf)) {
+    state.kind = 'building';
+    state.tab = 'building';
   } else {
     let text = new TextDecoder('utf-8').decode(buf);
     state.bom = text.charCodeAt(0) === 0xfeff;
     if (state.bom) text = text.slice(1);
     if (!text.trimStart().startsWith('{')) {
-      throw new Error('This is not a Dragonwilds world (.sav), character (.json) or DedicatedServer.ini file.');
+      throw new Error('This is not a Dragonwilds world (.sav), character (.json), DedicatedServer.ini or BuildingSettings.ini file.');
     }
     const json = parseJson(text);
     if (!json.meta_data && !json.GameProgress && !json.Skills) throw new Error('This JSON file does not look like a Dragonwilds character save.');
@@ -98,12 +107,12 @@ async function loadFile(file) {
   $('#landing').hidden = true;
   $('#editor').hidden = false;
   render();
-  toast('Loaded ' + file.name, 'ok');
 }
 
 function buildOutput() {
   if (state.kind === 'world') return writeSave(state.world.root);
   if (state.kind === 'server') return encodeIni(state.server.doc.toString(), state.server.encoding).bytes;
+  if (state.kind === 'building') return encodeIni(state.building.doc.toString(), state.building.encoding).bytes;
   const text = (state.bom ? '﻿' : '') + stringifyJson(state.char.json);
   return new TextEncoder().encode(text);
 }
@@ -126,12 +135,15 @@ function download() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+  state.isNew = false;
+  state.dirty = 0;
+  updateBar();
   toast('Downloaded ' + name + ' (' + fmtBytes(bytes.length) + ')', 'ok');
 }
 
 function reset() {
-  if (state.dirty && !confirm('Discard your unsaved edits?')) return;
-  Object.assign(state, { kind: null, world: null, char: null, server: null, original: null, dirty: 0 });
+  if ((state.dirty || state.isNew) && !confirm('Discard your unsaved edits?')) return;
+  Object.assign(state, { kind: null, world: null, char: null, server: null, building: null, original: null, dirty: 0, isNew: false });
   $('#editor').hidden = true;
   $('#landing').hidden = false;
   $('#file').value = '';
@@ -152,6 +164,10 @@ const SERVER_TABS = [
   ['players', 'Players'],
   ['rawini', 'Raw file'],
 ];
+const BUILDING_TABS = [
+  ['building', 'Totem limit'],
+  ['rawini', 'Raw file'],
+];
 const CHAR_TABS = [
   ['character', 'Character'],
   ['skills', 'Skills'],
@@ -162,15 +178,15 @@ const CHAR_TABS = [
 function updateBar() {
   const out = outputFileName();
   $('#file-name').textContent = state.fileName;
-  $('#file-meta').textContent = ({ world: 'World save', character: 'Character save', server: 'Server settings' }[state.kind]) + ' · ' + fmtBytes(state.original.length) +
+  $('#file-meta').textContent = ({ world: 'World save', character: 'Character save', server: 'Server settings', building: 'Building settings' }[state.kind]) + ' · ' + fmtBytes(state.original.length) +
     (out !== state.fileName ? ' · downloads as ' + out : '');
-  $('#dirty').textContent = state.dirty ? state.dirty + ' change' + (state.dirty === 1 ? '' : 's') + ' not yet downloaded' : 'No changes yet';
-  $('#dirty').classList.toggle('has', !!state.dirty);
+  $('#dirty').textContent = state.isNew ? 'New file, not downloaded yet' : state.dirty ? state.dirty + ' change' + (state.dirty === 1 ? '' : 's') + ' not yet downloaded' : 'No changes yet';
+  $('#dirty').classList.toggle('has', !!state.dirty || state.isNew);
 }
 
 function render() {
   updateBar();
-  const tabs = { world: WORLD_TABS, character: CHAR_TABS, server: SERVER_TABS }[state.kind];
+  const tabs = { world: WORLD_TABS, character: CHAR_TABS, server: SERVER_TABS, building: BUILDING_TABS }[state.kind];
   const nav = $('#tabs');
   nav.replaceChildren(...tabs.map(([id, label]) =>
     h('button', { role: 'tab', 'aria-selected': String(state.tab === id), class: 'tab', onclick: () => { state.tab = id; render(); } }, label)));
@@ -179,7 +195,7 @@ function render() {
   const views = {
     world: viewWorld, difficulty: viewDifficulty, storage: viewStorage, data: viewData, advanced: viewAdvanced,
     character: viewCharacter, skills: viewSkills, inventory: viewCharInventory, raw: viewRaw,
-    server: viewServer, players: viewPlayers, rawini: viewRawIni,
+    server: viewServer, players: viewPlayers, rawini: viewRawIni, building: viewBuilding,
   };
   try {
     panel.append(views[state.tab]());
@@ -1250,7 +1266,7 @@ function viewServer() {
   maxInput.addEventListener('input', () => showRam(Number(maxInput.value)));
 
   const owner = get('OwnerId');
-  const ownerSel = h('select', {
+  const ownerSel = !players.length && !owner ? h('p', { class: 'muted' }, 'Add a player on the Players tab; the first one becomes the owner.') : h('select', {
     onchange: guard(e => set('OwnerId', e.target.value, 'Owner set to ' + e.target.selectedOptions[0].textContent)),
   },
   owner && !players.some(p => playerId(p) === owner) ? h('option', { value: owner, selected: true }, owner + ' (not in player list)') : null,
@@ -1289,7 +1305,7 @@ function viewServer() {
           type: 'checkbox', checked: /^true$/i.test(crash ?? 'True'),
           onchange: e => set('bAllowSendingCrashDumps', boolText(crash, e.target.checked), 'Crash reports ' + (e.target.checked ? 'on' : 'off')),
         })),
-        field('Server ID', h('input', { type: 'text', value: get('ServerGuid') ?? '', readonly: true, class: 'mono' }), 'Read-only. Changing it could make the server look like a different one.'),
+        field('Server ID', get('ServerGuid') ? h('input', { type: 'text', value: get('ServerGuid'), readonly: true, class: 'mono' }) : h('p', { class: 'muted' }, 'Created by the server on first start.'), get('ServerGuid') ? 'Read-only. Changing it could make the server look like a different one.' : null),
       )),
     extra.length ? card('Other settings', 'Keys this editor does not know about. They are kept as written; edit with care.',
       h('div', { class: 'grid' }, extra.map(k => {
@@ -1365,7 +1381,10 @@ function viewPlayers() {
         { key: 'Privileges', struct: [{ key: 'PrivilegeMask', value: String(mask ?? 14) }] },
         { key: 'bIsBanned', value: 'False' },
       ] });
-      commit(name + ' added');
+      if (!doc.get(SERVER, 'OwnerId')) {
+        doc.set(SERVER, 'OwnerId', id);
+        commit(name + ' added and set as owner');
+      } else commit(name + ' added');
     }),
   }, 'Add player'));
 
@@ -1377,23 +1396,115 @@ function viewPlayers() {
     h('p', { class: 'hint' }, 'A normal player has Build, Open chests and Chat. Admin gives server admin rights. The owner is set on the Server tab.'));
 }
 
+// ---------------------------------------------------------------------------
+// Building settings override (BuildingSettings.ini) - protection totem limit.
+// Keys and map syntax match the game's own DefaultBuildingSettings.ini.
+
+const BUILDING = '/Script/Dominion.BuildingSettings';
+const TOTEM_TAG = 'BaseBuilding.PieceType.Prop.ProtectionTotem';
+const TOTEM_MAP_ENTRY = /(\(\(TagName="BaseBuilding\.PieceType\.Prop\.ProtectionTotem"\),\s*)(\d+)(\))/;
+
+function loadBuilding(buf) {
+  const { text, encoding } = decodeIni(buf);
+  if (!text.includes('[' + BUILDING + ']')) return false;
+  state.building = { doc: new IniDoc(text), encoding };
+  return true;
+}
+
+function viewBuilding() {
+  const doc = state.building.doc;
+  const get = k => doc.get(BUILDING, k);
+  const max = Number(get('MaximumBuildingProtectionTotems') ?? 8);
+  const limited = !/^false$/i.test(get('bHasMaximumBuildingProtectionTotemCount') ?? 'True');
+
+  // The game has two limits for totems; keep them equal so neither caps below the other.
+  const setLimit = n => {
+    doc.set(BUILDING, 'MaximumBuildingProtectionTotems', n);
+    const map = get('PieceTagToMaxCountMap');
+    if (map && TOTEM_MAP_ENTRY.test(map)) doc.set(BUILDING, 'PieceTagToMaxCountMap', map.replace(TOTEM_MAP_ENTRY, '$1' + n + '$3'));
+    else doc.set(BUILDING, 'PieceTagToMaxCountMap', '(((TagName="' + TOTEM_TAG + '"), ' + n + '))');
+  };
+
+  return h('div', { class: 'stack' },
+    card('Protection totems', 'Totems stop other players building near them. This file overrides the game\'s default limit.',
+      h('p', { class: 'note' }, 'Experimental: not yet confirmed that the server reads this file. Save it as BuildingSettings.ini in the same folder as DedicatedServer.ini, restart the server, and check the limit in game.'),
+      h('div', { class: 'grid' },
+        field('Limit totems', h('input', {
+          type: 'checkbox', checked: limited,
+          onchange: e => { doc.set(BUILDING, 'bHasMaximumBuildingProtectionTotemCount', e.target.checked ? 'True' : 'False'); changed('Totem limit ' + (e.target.checked ? 'on' : 'off')); },
+        }), 'Untick to remove the limit.'),
+        field('Maximum totems', numberInput(max, guard(v => {
+          if (!Number.isInteger(v) || v < 1) throw new Error('The limit must be a whole number, 1 or more');
+          setLimit(v);
+          changed('Totem limit set to ' + v);
+        }), { min: '1', step: '1' }), 'The game ships with 8. Sets both of the game\'s totem limits.'),
+      )),
+  );
+}
+
+// Raw text editor for either ini file type.
 function viewRawIni() {
+  const holder = state.kind === 'building' ? state.building : state.server;
+  const section = state.kind === 'building' ? BUILDING : SERVER;
   const ta = h('textarea', { class: 'code', spellcheck: 'false', rows: 22 });
-  ta.value = state.server.doc.toString().replace(/\r\n/g, '\n');
+  ta.value = holder.doc.toString().replace(/\r\n/g, '\n');
   const status = h('span', { class: 'hint' });
-  return card('Raw file', 'The whole DedicatedServer.ini as text.',
+  return card('Raw file', 'The whole file as text.',
     h('div', { class: 'json-editor' }, ta, h('div', { class: 'actions' },
       h('button', {
         class: 'primary',
         onclick: guard(() => {
-          const text = ta.value.replace(/\r?\n/g, state.server.doc.eol);
-          if (!text.includes('[' + SERVER + ']')) throw new Error('The [' + SERVER + '] section is missing');
-          state.server.doc = new IniDoc(text);
-          readPlayers();
+          const text = ta.value.replace(/\r?\n/g, holder.doc.eol);
+          if (!text.includes('[' + section + ']')) throw new Error('The [' + section + '] section is missing');
+          holder.doc = new IniDoc(text);
+          if (state.kind === 'server') readPlayers();
           changed('Raw file applied');
           status.textContent = 'Applied.';
         }),
       }, 'Apply'), status)));
+}
+
+// ---------------------------------------------------------------------------
+// Templates: start a new file without uploading one.
+
+const TEMPLATES = {
+  server: {
+    name: 'DedicatedServer.ini',
+    // OwnerId and ServerGuid are left out: the owner must be a real player (added on the
+    // Players tab) and the server creates its own ID on first start.
+    text: [
+      ';METADATA=(Diff=true, UseCommands=true)',
+      '[SectionsToSave]',
+      'bCanSaveAllSections=true',
+      '',
+      '[/Script/Dominion.DedicatedServerSettings]',
+      'PlatformPolicy=Crossplay',
+      'MaxPlayers=6',
+      'WorldPassword=',
+      'ServerName=My Dragonwilds Server',
+      'DefaultWorldName=MyWorld',
+      'bAllowSendingCrashDumps=True',
+      '',
+    ].join('\r\n'),
+    tab: 'server',
+  },
+  building: {
+    name: 'BuildingSettings.ini',
+    text: [
+      '[' + BUILDING + ']',
+      'bHasMaximumBuildingProtectionTotemCount=True',
+      'MaximumBuildingProtectionTotems=8',
+      'PieceTagToMaxCountMap=(((TagName="' + TOTEM_TAG + '"), 8))',
+      '',
+    ].join('\r\n'),
+    tab: 'building',
+  },
+};
+
+function openTemplate(key) {
+  const t = TEMPLATES[key];
+  loadBytes(new TextEncoder().encode(t.text), t.name, { isNew: true });
+  toast('New ' + t.name + ' created. Edit it, then download.', 'ok');
 }
 
 // ---------------------------------------------------------------------------
@@ -1412,8 +1523,9 @@ function init() {
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); open(e.dataTransfer.files[0]); });
   $('#download').addEventListener('click', guard(download));
+  for (const b of document.querySelectorAll('[data-template]')) b.addEventListener('click', guard(() => openTemplate(b.dataset.template)));
   $('#reset').addEventListener('click', reset);
-  window.addEventListener('beforeunload', e => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('beforeunload', e => { if (state.dirty || state.isNew) { e.preventDefault(); e.returnValue = ''; } });
   for (const b of document.querySelectorAll('[data-copy]')) {
     b.addEventListener('click', () => {
       navigator.clipboard?.writeText(b.dataset.copy).then(() => toast('Path copied', 'ok'), () => {});

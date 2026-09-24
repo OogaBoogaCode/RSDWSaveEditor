@@ -7,7 +7,7 @@
   <meta name="description" content="Edit RuneScape: Dragonwilds world and character saves in your browser. Your files never leave your device.">
   <meta name="color-scheme" content="dark light">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=17">
+  <link rel="stylesheet" href="styles.css?v=18">
 </head>
 <body>
   <header class="site">
@@ -36,6 +36,20 @@
         <strong>Drop a save file here, or click to choose one</strong>
         <span>World saves end in <code>.sav</code>, character saves in <code>.json</code>, and dedicated server settings are <code>DedicatedServer.ini</code>.</span>
       </label>
+
+      <section class="templates" aria-labelledby="tpl-title">
+        <h2 id="tpl-title">No file? Start from a template</h2>
+        <div class="template-grid">
+          <button type="button" class="template" data-template="server">
+            <strong>Dedicated server settings</strong>
+            <span>A new DedicatedServer.ini: server name, world, password, players and crossplay.</span>
+          </button>
+          <button type="button" class="template" data-template="building">
+            <strong>Protection totem limit <em class="tag">experimental</em></strong>
+            <span>A new BuildingSettings.ini to change how many protection totems can be placed.</span>
+          </button>
+        </div>
+      </section>
 
       <div class="info-grid">
         <article class="card">
@@ -84,6 +98,6 @@
   </footer>
 
   <div id="toasts" aria-live="polite"></div>
-  <script type="module" src="src/app.js?v=17"></script>
+  <script type="module" src="src/app.js?v=18"></script>
 </body>
 </html>

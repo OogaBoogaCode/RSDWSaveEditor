@@ -24,6 +24,10 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 - Known players: rename, ban/unban, privilege mask, add by user ID, remove
 - Raw file; unknown keys, comments and ordering are preserved, and the file keeps its encoding (UTF-16 when it holds non-ASCII names, as Unreal writes it)
 
+**Templates** (no upload needed)
+- New `DedicatedServer.ini` with defaults; the first player added becomes the owner, and the server fills in its own ServerGuid
+- New `BuildingSettings.ini` to change the protection totem limit (experimental: sets `MaximumBuildingProtectionTotems` and the totem entry of `PieceTagToMaxCountMap`, as in the game's DefaultBuildingSettings.ini)
+
 ## Format notes
 
 World saves are [SPUD](https://github.com/sinbad/SPUD) (Steve's Persistent Unreal Data) chunk files with Dragonwilds-specific additions:
