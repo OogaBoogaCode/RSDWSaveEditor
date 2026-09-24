@@ -219,3 +219,8 @@ td.item { min-width: 180px; }
 .item-result.active { border-color: var(--gold); background: var(--bg); }
 .picked { margin-top: 10px; min-height: 1.5em; }
 [hidden] { display: none !important; }
+
+/* Support link: quiet, footer only */
+footer.site p { margin: 4px 0; }
+.support a { color: var(--muted); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border-bottom: 1px dotted var(--line); }
+.support a:hover { color: var(--gold-2); border-bottom-color: var(--gold); }
