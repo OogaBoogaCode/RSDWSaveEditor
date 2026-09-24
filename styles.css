@@ -353,3 +353,42 @@ a.button.primary { background: var(--gold); color: var(--on-gold); border-color:
 .cvar-title { margin: 0 0 8px; }
 .cvar-lines { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--surface-2); font-family: var(--mono); font-size: .85rem; overflow-x: auto; }
 .cvar-box.off .cvar-lines { opacity: .6; }
+
+/* Feedback and admin */
+.feedback-form { max-width: 640px; display: grid; gap: 14px; }
+.feedback-form textarea { resize: vertical; }
+.hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+footer.site a { color: var(--gold-2); }
+.login-card { max-width: 380px; margin: 20px auto; display: grid; gap: 12px; }
+.admin-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.admin-head .actions { margin: 0 0 0 auto; }
+.admin-head h3 { margin: 0; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat-tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 2px; }
+.stat-label { color: var(--muted); font-size: .85rem; }
+.stat-value { font-family: var(--serif); font-size: 1.9rem; line-height: 1.1; }
+.stat-sub { color: var(--muted); font-size: .8rem; }
+#page-admin .card { margin-bottom: 16px; }
+.chart-wrap { position: relative; }
+.bar-chart { width: 100%; height: auto; display: block; }
+.bar-chart .bar { fill: var(--chart); }
+.bar-chart .grid { stroke: var(--line); stroke-width: 1; }
+.bar-chart .axis { fill: var(--muted); font-size: 11px; font-family: var(--sans); }
+.bar-chart .hit { fill: transparent; cursor: default; outline: none; }
+.bar-chart .hit:hover, .bar-chart .hit:focus { fill: color-mix(in srgb, var(--text) 6%, transparent); }
+.chart-tip {
+  position: absolute; top: 0; transform: translate(-50%, -110%); pointer-events: none; white-space: nowrap;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: .82rem;
+}
+.usage-table td.num { font-variant-numeric: tabular-nums; }
+.feedback-list { display: grid; gap: 10px; }
+.feedback-item { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--bg); }
+.feedback-item.done { opacity: .65; }
+.feedback-meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: .85rem; color: var(--muted); }
+.feedback-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+.feedback-item .actions { margin-top: 6px; }
+/* Validated chart colours: dark is the default theme, light overrides. */
+:root { --chart: #b9852b; }
+@media (prefers-color-scheme: light) { :root { --chart: #9a6b12; } }
+.chart-tip[data-edge=start] { transform: translate(-12%, -110%); }
+.chart-tip[data-edge=end] { transform: translate(-88%, -110%); }

@@ -2,7 +2,7 @@
 
 Browser-based save editor for RuneScape: Dragonwilds. Upload a world (`.sav`) or character (`.json`) save, edit it, download the new file. Everything runs client-side: the file is held in memory for the life of the tab and never sent anywhere (the CSP sets `connect-src 'none'`).
 
-Static site, no build step, no dependencies. Vercel serves the repo root as-is.
+The editor is a static site with no build step. A few small Vercel functions in `/api` handle the feedback form, anonymous usage counts and the admin page; they never receive save files.
 
 ## What it edits
 
@@ -33,6 +33,21 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 - New `DedicatedServer.ini` with defaults; the first player added becomes the owner, and the server fills in its own ServerGuid
 - New `BuildingSettings.ini` to change the protection totem limit (confirmed on a dedicated server; sets `MaximumBuildingProtectionTotems` and the totem entry of `PieceTagToMaxCountMap`, as in the game's DefaultBuildingSettings.ini)
 
+**Feedback and admin**
+- `#/feedback`: public form (bug / idea / other, optional contact). Stored as typed; a hidden honeypot field and a daily cap limit spam.
+- Anonymous usage counts: daily totals per event name only (visits, file type opened/downloaded, templates, feedback sent). No file names or contents, no IPs, no visitor cookies; Do Not Track / Global Privacy Control are respected.
+- `#/admin` (not linked in the menu): password sign-in, then usage tiles, a 30-day visits chart with a table view, and the feedback list (mark done, reopen, delete).
+
+### Setup (Vercel environment variables)
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Neon Postgres connection string (pooled). Tables are created automatically on first use. |
+| `ADMIN_PASSWORD` | The admin page password. |
+| `SESSION_SECRET` | Random string, 32+ characters, used to sign the admin session cookie. Generate one in PowerShell: `[Convert]::ToBase64String((1..48 | % { Get-Random -Max 256 }))` |
+
+Without these, the editor still works; feedback shows "not available" and counts are skipped. Failed admin logins are limited to 5 per 15 minutes per caller (a salted hash of the IP, deleted after the window).
+
 ## Format notes
 
 World saves are [SPUD](https://github.com/sinbad/SPUD) (Steve's Persistent Unreal Data) chunk files with Dragonwilds-specific additions:
@@ -57,7 +72,10 @@ src/inventory.js  slot helpers
 src/ini.js        DedicatedServer.ini parse/write
 src/data.js       difficulty settings (generated from game data)
 src/catalog.js    item/skill names (generated)
-src/app.js        UI
+src/app.js        UI and routing
+src/admin.js      admin page (loaded only on #/admin)
+src/dom.js        small DOM helpers
+api/              Vercel functions: event, feedback, admin/login|logout|data|feedback
 vercel.json       security headers, caching
 ```
 

@@ -5,30 +5,11 @@ import { WorldSave, typeName, isEditableType, shortClass } from './model.js';
 import { parse as parseJson, stringify as stringifyJson, num, keysOf } from './uejson.js';
 import { slots, putItem, removeItem, cloneItem, itemCatalog, newItemGuid } from './inventory.js';
 import { ITEMS, SKILLS } from './catalog.js';
+import { $, h, fill } from './dom.js';
 import { IniDoc, decodeIni, encodeIni, parseStruct, stringifyStruct, structGet, structSet } from './ini.js';
 import { DIFFICULTY_TAGS, DIFFICULTY_MODES } from './data.js';
 
-const $ = sel => document.querySelector(sel);
 
-function h(tag, attrs = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs ?? {})) {
-    if (v === undefined || v === null || v === false) continue;
-    if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else if (k === 'class') el.className = v;
-    else if (k === 'value') el.value = v;
-    else if (k === 'checked') el.checked = !!v;
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  for (const kid of kids.flat(Infinity)) {
-    if (kid === null || kid === undefined || kid === false) continue;
-    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
-  }
-  return el;
-}
-
-// replaceChildren would render null/false as text
-const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter(k => k !== null && k !== undefined && k !== false));
 
 const state = { kind: null, fileName: '', original: null, world: null, char: null, tab: null, dirty: 0, bom: false };
 let blobCache = null;
@@ -67,7 +48,18 @@ const fmtNum = v => (typeof v === 'number' && !Number.isInteger(v) ? +v.toFixed(
 
 async function loadFile(file) {
   loadBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+  track('open:' + state.kind);
   toast('Loaded ' + file.name, 'ok');
+}
+
+// Anonymous usage counts: only the event name is sent (e.g. "open:world"), never file
+// names or contents. Browsers asking not to be tracked are skipped.
+function track(event) {
+  try {
+    if (navigator.doNotTrack === '1' || navigator.globalPrivacyControl) return;
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') return;
+    navigator.sendBeacon?.('/api/event', new Blob([JSON.stringify({ event })], { type: 'application/json' }));
+  } catch { /* counting must never break the editor */ }
 }
 
 // isNew: a file created from a template, not yet downloaded.
@@ -149,6 +141,7 @@ function download() {
   state.isNew = false;
   state.dirty = 0;
   updateBar();
+  track('download:' + state.kind);
   toast('Downloaded ' + name + ' (' + fmtBytes(bytes.length) + ')', 'ok');
 }
 
@@ -163,8 +156,9 @@ function reset() {
 // Routing: each page has its own address so Back, links and bookmarks work.
 // Leaving the editor keeps the open file; the home page offers to continue.
 
-const ROUTES = { '': 'landing', edit: 'editor', tools: 'page-tools', mods: 'page-mods' };
-const TITLES = { '': 'Dragonwilds Save Editor', edit: 'Editing', tools: 'Tools', mods: 'WillyWonky Mods' };
+const ROUTES = { '': 'landing', edit: 'editor', tools: 'page-tools', mods: 'page-mods', feedback: 'page-feedback', admin: 'page-admin' };
+const TITLES = { '': 'Dragonwilds Save Editor', edit: 'Editing', tools: 'Tools', mods: 'WillyWonky Mods', feedback: 'Feedback', admin: 'Admin' };
+let adminLoaded = false;
 
 function currentRoute() {
   const r = (/^#\/?([a-z]*)/.exec(location.hash) ?? [])[1] ?? '';
@@ -193,6 +187,13 @@ function route() {
   if (!resume.hidden) {
     $('#resume-name').textContent = state.fileName;
     $('#resume-dirty').textContent = state.isNew ? ' (new, not downloaded yet)' : state.dirty ? ' with ' + state.dirty + ' unsaved change' + (state.dirty === 1 ? '' : 's') : '';
+  }
+  // The admin page code is only downloaded when someone opens it.
+  if (r === 'admin' && !adminLoaded) {
+    adminLoaded = true;
+    import('./admin.js?v=' + (document.querySelector('script[src*="app.js"]')?.src.split('v=')[1] ?? '1'))
+      .then(m => m.mount($('#admin-root')))
+      .catch(() => { $('#admin-root').textContent = 'Could not load the admin page.'; });
   }
   document.title = (r === 'edit' && state.fileName ? state.fileName + ' · ' : r ? TITLES[r] + ' · ' : '') + 'Dragonwilds Save Editor';
   window.scrollTo(0, 0);
@@ -1628,7 +1629,41 @@ const TEMPLATES = {
 function openTemplate(key) {
   const t = TEMPLATES[key];
   loadBytes(new TextEncoder().encode(t.text), t.name, { isNew: true });
+  track('template:' + key);
   toast('New ' + t.name + ' created. Edit it, then download.', 'ok');
+}
+
+// ---------------------------------------------------------------------------
+// Feedback form
+
+function setupFeedbackForm() {
+  const form = $('#feedback-form');
+  if (!form) return;
+  const status = $('#feedback-status');
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form));
+    if (String(data.message ?? '').trim().length < 3) { status.textContent = 'Please write a little more.'; return; }
+    const button = form.querySelector('button[type=submit]');
+    button.disabled = true;
+    status.textContent = 'Sending…';
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, page: state.kind ?? 'site' }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? 'Could not send feedback.');
+      form.reset();
+      status.textContent = 'Thanks! Your feedback was sent.';
+      track('feedback:sent');
+    } catch (err) {
+      status.textContent = err.message || 'Could not send feedback. Please try again later.';
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1652,6 +1687,8 @@ function init() {
   $('#resume-close').addEventListener('click', reset);
   window.addEventListener('hashchange', route);
   route();
+  track('visit');
+  setupFeedbackForm();
   window.addEventListener('beforeunload', e => { if (state.dirty || state.isNew) { e.preventDefault(); e.returnValue = ''; } });
   for (const b of document.querySelectorAll('[data-copy]')) {
     b.addEventListener('click', () => {

@@ -1,0 +1,12 @@
+{
+  "name": "rsdw-save-editor",
+  "private": true,
+  "type": "module",
+  "description": "Browser-based RuneScape: Dragonwilds save editor with a small feedback/stats API.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

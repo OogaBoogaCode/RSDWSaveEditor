@@ -7,7 +7,7 @@
   <meta name="description" content="Edit RuneScape: Dragonwilds world and character saves in your browser. Your files never leave your device.">
   <meta name="color-scheme" content="dark light">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="stylesheet" href="styles.css?v=26">
 </head>
 <body>
   <header class="site">
@@ -30,6 +30,7 @@
     <a href="#/" data-route="home">Save Editor</a>
     <a href="#/tools" data-route="tools">Tools</a>
     <a href="#/mods" data-route="mods">WillyWonky Mods</a>
+    <a href="#/feedback" data-route="feedback">Feedback</a>
   </nav>
 
   <main>
@@ -70,7 +71,8 @@
         </article>
         <article class="card">
           <h2>Private by design</h2>
-          <p>The file is read and rewritten by code running in this tab. It is never uploaded, logged or stored. Close the tab and it is gone.</p>
+          <p>Your files are read and rewritten by code running in this tab. They are never uploaded or stored. Close the tab and they are gone.</p>
+          <p class="hint">The site keeps anonymous daily counts (visits, and which kind of file was opened or downloaded) to see what is used. No file names or contents, no IP addresses and no tracking cookies. Browsers with Do Not Track or Global Privacy Control are not counted. Feedback you send is stored so it can be read.</p>
         </article>
       </div>
     </section>
@@ -121,6 +123,37 @@
       </section>
     </section>
 
+    <section id="page-feedback" hidden>
+      <div class="page-head">
+        <h2>Feedback</h2>
+        <p class="sub">Found a bug or have an idea? Send it here. Please don't include passwords or anything private.</p>
+      </div>
+      <form id="feedback-form" class="card feedback-form">
+        <label class="field"><span class="label">Type</span>
+          <select name="kind">
+            <option value="bug">Bug</option>
+            <option value="idea">Idea</option>
+            <option value="other" selected>Other</option>
+          </select>
+        </label>
+        <label class="field"><span class="label">Message</span>
+          <textarea name="message" rows="6" maxlength="3000" required></textarea>
+        </label>
+        <label class="field"><span class="label">Contact (optional)</span>
+          <input type="text" name="contact" maxlength="200" placeholder="Discord name or email, if you'd like a reply">
+        </label>
+        <label class="hp" aria-hidden="true">Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+        <div class="actions">
+          <button type="submit" class="primary">Send feedback</button>
+          <span id="feedback-status" class="hint" role="status"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="page-admin" hidden>
+      <div id="admin-root"></div>
+    </section>
+
     <section id="page-mods" hidden>
       <div class="page-head">
         <h2>WillyWonky Mods</h2>
@@ -131,9 +164,10 @@
 
   <footer class="site">
     <p>Unofficial fan tool. Not affiliated with or endorsed by Jagex. Always keep a backup of your saves.</p>
+    <p><a href="#/feedback">Send feedback</a></p>
   </footer>
 
   <div id="toasts" aria-live="polite"></div>
-  <script type="module" src="src/app.js?v=23"></script>
+  <script type="module" src="src/app.js?v=26"></script>
 </body>
 </html>
