@@ -7,7 +7,7 @@
   <meta name="description" content="Edit RuneScape: Dragonwilds world and character saves in your browser. Your files never leave your device.">
   <meta name="color-scheme" content="dark light">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=21">
+  <link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
   <header class="site">
@@ -46,7 +46,7 @@
           <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
         </span>
         <strong>Drop a save file here, or click to choose one</strong>
-        <span>World saves end in <code>.sav</code>, character saves in <code>.json</code>. Server files (<code>DedicatedServer.ini</code>, <code>BuildingSettings.ini</code>) open here too.</span>
+        <span>World saves end in <code>.sav</code>, character saves in <code>.json</code>. Server files (<code>DedicatedServer.ini</code>, <code>BuildingSettings.ini</code>, <code>Engine.ini</code>) open here too.</span>
       </label>
       <p class="pointer">Setting up a dedicated server with no files yet? Start from a template in <a href="#/tools">Tools</a>.</p>
 
@@ -104,6 +104,10 @@
             <strong>Dedicated server settings</strong>
             <span>A new DedicatedServer.ini: server name, world, password, players and crossplay.</span>
           </button>
+          <button type="button" class="template" data-template="engine">
+            <strong>Load whole world into memory</strong>
+            <span>A new Engine.ini that turns off server world streaming. Uses around 7–8 GB of RAM before players join. If the server already has an Engine.ini, open that one instead.</span>
+          </button>
           <button type="button" class="template" data-template="building">
             <strong>Protection totem limit</strong>
             <span>A new BuildingSettings.ini to change how many protection totems can be placed.</span>
@@ -130,6 +134,6 @@
   </footer>
 
   <div id="toasts" aria-live="polite"></div>
-  <script type="module" src="src/app.js?v=21"></script>
+  <script type="module" src="src/app.js?v=22"></script>
 </body>
 </html>

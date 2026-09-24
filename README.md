@@ -26,6 +26,9 @@ Static site, no build step, no dependencies. Vercel serves the repo root as-is.
 
 **Pages**: Save Editor (`#/`, editing at `#/edit`), Tools (`#/tools`) and WillyWonky Mods (`#/mods`). Each has its own address, so Back and bookmarks work; leaving the editor keeps the open file and the home page offers to continue.
 
+**Server engine settings** (`Engine.ini`)
+- "Load the entire world into memory": sets `wp.Runtime.EnableServerStreaming=0` and `wp.Runtime.EnableServerStreamingOut=0` under `[ConsoleVariables]` (removing them restores streaming), with a warning that it uses around 7-8 GB of RAM before players join. Everything else in the file is kept.
+
 **Templates** on the Tools page (no upload needed)
 - New `DedicatedServer.ini` with defaults; the first player added becomes the owner, and the server fills in its own ServerGuid
 - New `BuildingSettings.ini` to change the protection totem limit (confirmed on a dedicated server; sets `MaximumBuildingProtectionTotems` and the totem entry of `PieceTagToMaxCountMap`, as in the game's DefaultBuildingSettings.ini)

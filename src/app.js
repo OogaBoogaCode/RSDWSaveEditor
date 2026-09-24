@@ -77,7 +77,7 @@ function loadBytes(buf, name, { isNew = false } = {}) {
   state.dirty = 0;
   state.isNew = isNew;
   blobCache = null;
-  state.world = state.char = state.server = state.building = null;
+  state.world = state.char = state.server = state.building = state.engine = null;
   // Selections belong to the previous file.
   Object.assign(bagUi, { view: 'Inventory', page: 0, sel: null });
   storageUi.open = dataUi.open = advUi.open = null;
@@ -92,12 +92,15 @@ function loadBytes(buf, name, { isNew = false } = {}) {
   } else if (loadBuilding(buf)) {
     state.kind = 'building';
     state.tab = 'building';
+  } else if (loadEngine(buf, name)) {
+    state.kind = 'engine';
+    state.tab = 'engine';
   } else {
     let text = new TextDecoder('utf-8').decode(buf);
     state.bom = text.charCodeAt(0) === 0xfeff;
     if (state.bom) text = text.slice(1);
     if (!text.trimStart().startsWith('{')) {
-      throw new Error('This is not a Dragonwilds world (.sav), character (.json), DedicatedServer.ini or BuildingSettings.ini file.');
+      throw new Error('This is not a Dragonwilds world (.sav), character (.json), DedicatedServer.ini, BuildingSettings.ini or Engine.ini file.');
     }
     const json = parseJson(text);
     if (!json.meta_data && !json.GameProgress && !json.Skills) throw new Error('This JSON file does not look like a Dragonwilds character save.');
@@ -112,7 +115,7 @@ function loadBytes(buf, name, { isNew = false } = {}) {
 function buildOutput() {
   if (state.kind === 'world') return writeSave(state.world.root);
   if (state.kind === 'server') return encodeIni(state.server.doc.toString(), state.server.encoding).bytes;
-  if (state.kind === 'building') return encodeIni(state.building.doc.toString(), state.building.encoding).bytes;
+  if (state.kind === 'building' || state.kind === 'engine') return encodeIni(state[state.kind].doc.toString(), state[state.kind].encoding).bytes;
   const text = (state.bom ? '﻿' : '') + stringifyJson(state.char.json);
   return new TextEncoder().encode(text);
 }
@@ -151,7 +154,7 @@ function download() {
 
 function reset() {
   if ((state.dirty || state.isNew) && !confirm('Discard your unsaved edits?')) return;
-  Object.assign(state, { kind: null, world: null, char: null, server: null, building: null, original: null, dirty: 0, isNew: false });
+  Object.assign(state, { kind: null, world: null, char: null, server: null, building: null, engine: null, original: null, dirty: 0, isNew: false });
   $('#file').value = '';
   go('');
 }
@@ -210,6 +213,10 @@ const SERVER_TABS = [
   ['players', 'Players'],
   ['rawini', 'Raw file'],
 ];
+const ENGINE_TABS = [
+  ['engine', 'World streaming'],
+  ['rawini', 'Raw file'],
+];
 const BUILDING_TABS = [
   ['building', 'Totem limit'],
   ['rawini', 'Raw file'],
@@ -224,7 +231,7 @@ const CHAR_TABS = [
 function updateBar() {
   const out = outputFileName();
   $('#file-name').textContent = state.fileName;
-  $('#file-meta').textContent = ({ world: 'World save', character: 'Character save', server: 'Server settings', building: 'Building settings' }[state.kind]) + ' · ' + fmtBytes(state.original.length) +
+  $('#file-meta').textContent = ({ world: 'World save', character: 'Character save', server: 'Server settings', building: 'Building settings', engine: 'Server engine settings' }[state.kind]) + ' · ' + fmtBytes(state.original.length) +
     (out !== state.fileName ? ' · downloads as ' + out : '');
   $('#dirty').textContent = state.isNew ? 'New file, not downloaded yet' : state.dirty ? state.dirty + ' change' + (state.dirty === 1 ? '' : 's') + ' not yet downloaded' : 'No changes yet';
   $('#dirty').classList.toggle('has', !!state.dirty || state.isNew);
@@ -232,7 +239,7 @@ function updateBar() {
 
 function render() {
   updateBar();
-  const tabs = { world: WORLD_TABS, character: CHAR_TABS, server: SERVER_TABS, building: BUILDING_TABS }[state.kind];
+  const tabs = { world: WORLD_TABS, character: CHAR_TABS, server: SERVER_TABS, building: BUILDING_TABS, engine: ENGINE_TABS }[state.kind];
   const nav = $('#tabs');
   nav.replaceChildren(...tabs.map(([id, label]) =>
     h('button', { role: 'tab', 'aria-selected': String(state.tab === id), class: 'tab', onclick: () => { state.tab = id; render(); } }, label)));
@@ -241,7 +248,7 @@ function render() {
   const views = {
     world: viewWorld, difficulty: viewDifficulty, storage: viewStorage, data: viewData, advanced: viewAdvanced,
     character: viewCharacter, skills: viewSkills, inventory: viewCharInventory, raw: viewRaw,
-    server: viewServer, players: viewPlayers, rawini: viewRawIni, building: viewBuilding,
+    server: viewServer, players: viewPlayers, rawini: viewRawIni, building: viewBuilding, engine: viewEngine,
   };
   try {
     panel.append(views[state.tab]());
@@ -1501,10 +1508,52 @@ function viewBuilding() {
   );
 }
 
-// Raw text editor for either ini file type.
+// ---------------------------------------------------------------------------
+// Engine.ini (dedicated server) - world streaming console variables.
+
+const CVARS = 'ConsoleVariables';
+const STREAMING_VARS = ['wp.Runtime.EnableServerStreaming', 'wp.Runtime.EnableServerStreamingOut'];
+
+function loadEngine(buf, name) {
+  const { text, encoding } = decodeIni(buf);
+  const looksLikeEngine = /(^|[\\/])engine\.ini$/i.test(name) || /^\s*\[(Core\.System|ConsoleVariables)\]\s*$/m.test(text);
+  if (!looksLikeEngine || !/^\s*\[.+\]\s*$/m.test(text)) return false;
+  state.engine = { doc: new IniDoc(text), encoding };
+  return true;
+}
+
+function viewEngine() {
+  const doc = state.engine.doc;
+  const values = STREAMING_VARS.map(k => doc.get(CVARS, k));
+  const fullWorld = values.every(v => v === '0');
+  const otherVars = doc.keys(CVARS).filter(k => !STREAMING_VARS.includes(k));
+
+  return h('div', { class: 'stack' },
+    card('World streaming', 'Settings from the dedicated server\'s Engine.ini. Restart the server after replacing the file.',
+      h('label', { class: 'switch-row' },
+        h('input', {
+          type: 'checkbox', checked: fullWorld,
+          onchange: e => {
+            if (e.target.checked) STREAMING_VARS.forEach(k => doc.set(CVARS, k, '0'));
+            else STREAMING_VARS.forEach(k => doc.remove(CVARS, k));
+            changed(e.target.checked ? 'Whole world will load into memory' : 'World streaming restored to the default');
+            render();
+          },
+        }),
+        h('span', {}, h('strong', {}, 'Load the entire world into memory'),
+          h('small', {}, 'Turns off server world streaming, so every area stays loaded instead of loading around players.'))),
+      h('p', { class: 'note warn' }, 'This uses around 7–8 GB of RAM before any players join. Make sure the server has that memory to spare on top of what players need.'),
+      h('dl', { class: 'facts' },
+        STREAMING_VARS.map((k, i) => fact(k, values[i] ?? 'not set (game default)')))),
+    otherVars.length ? card('Other console variables', 'Kept as written. Edit them on the Raw file tab.',
+      h('dl', { class: 'facts' }, otherVars.map(k => fact(k, doc.get(CVARS, k))))) : null,
+  );
+}
+
+// Raw text editor for the ini file types.
 function viewRawIni() {
-  const holder = state.kind === 'building' ? state.building : state.server;
-  const section = state.kind === 'building' ? BUILDING : SERVER;
+  const holder = state[state.kind];
+  const section = { building: BUILDING, server: SERVER }[state.kind];
   const ta = h('textarea', { class: 'code', spellcheck: 'false', rows: 22 });
   ta.value = holder.doc.toString().replace(/\r\n/g, '\n');
   const status = h('span', { class: 'hint' });
@@ -1514,7 +1563,7 @@ function viewRawIni() {
         class: 'primary',
         onclick: guard(() => {
           const text = ta.value.replace(/\r?\n/g, holder.doc.eol);
-          if (!text.includes('[' + section + ']')) throw new Error('The [' + section + '] section is missing');
+          if (section && !text.includes('[' + section + ']')) throw new Error('The [' + section + '] section is missing');
           holder.doc = new IniDoc(text);
           if (state.kind === 'server') readPlayers();
           changed('Raw file applied');
@@ -1546,6 +1595,15 @@ const TEMPLATES = {
       '',
     ].join('\r\n'),
     tab: 'server',
+  },
+  engine: {
+    name: 'Engine.ini',
+    text: [
+      ';METADATA=(Diff=true, UseCommands=true)',
+      '[' + CVARS + ']',
+      ...STREAMING_VARS.map(k => k + '=0'),
+      '',
+    ].join('\r\n'),
   },
   building: {
     name: 'BuildingSettings.ini',
