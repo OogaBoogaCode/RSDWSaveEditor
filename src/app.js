@@ -2,7 +2,7 @@
 // read into memory, edited, and handed back as a download. Nothing is uploaded or stored.
 import { parseSave, writeSave } from './spud.js';
 import { WorldSave, typeName, isEditableType, shortClass } from './model.js';
-import { parse as parseJson, stringify as stringifyJson, num, keysOf } from './uejson.js';
+import { parse as parseJson, stringify as stringifyJson, eolOf, num, keysOf } from './uejson.js';
 import { slots, putItem, removeItem, cloneItem, itemCatalog, newItemGuid } from './inventory.js';
 import { ITEMS, SKILLS, MAX_DURABILITY } from './catalog.js';
 import { $, h, fill } from './dom.js';
@@ -97,7 +97,7 @@ function loadBytes(buf, name, { isNew = false } = {}) {
     }
     const json = parseJson(text);
     if (!json.meta_data && !json.GameProgress && !json.Skills) throw new Error('This JSON file does not look like a Dragonwilds character save.');
-    state.char = { json, root: json.GameProgress ?? json, loadedName: json.meta_data?.char_name ?? null };
+    state.char = { json, root: json.GameProgress ?? json, loadedName: json.meta_data?.char_name ?? null, eol: eolOf(text) };
     state.kind = 'character';
     state.tab = 'character';
   }
@@ -109,7 +109,7 @@ function buildOutput() {
   if (state.kind === 'world') return writeSave(state.world.root);
   if (state.kind === 'server') return encodeIni(state.server.doc.toString(), state.server.encoding).bytes;
   if (state.kind === 'building' || state.kind === 'engine') return encodeIni(state[state.kind].doc.toString(), state[state.kind].encoding).bytes;
-  const text = (state.bom ? '﻿' : '') + stringifyJson(state.char.json);
+  const text = (state.bom ? '﻿' : '') + stringifyJson(state.char.json, 0, state.char.eol);
   return new TextEncoder().encode(text);
 }
 
@@ -538,7 +538,7 @@ function viewStorage() {
         title: blobLabel(open),
         subtitle: areaLabel(open.obj.container) + ' · ' + (open.component || open.name),
         catalog,
-        commit: msg => { w.setProperty(open.obj, open.path, stringifyJson(open.json)); open.text = stringifyJson(open.json); open.count = slots(open.json).length; open.names = slots(open.json).map(s => itemSearchText(s.item.ItemData)).join(' '); changed(msg); draw(); },
+        commit: msg => { const out = stringifyJson(open.json, 0, eolOf(open.text)); w.setProperty(open.obj, open.path, out); open.text = out; open.count = slots(open.json).length; open.names = slots(open.json).map(s => itemSearchText(s.item.ItemData)).join(' '); changed(msg); draw(); },
       })
       : h('div', { class: 'empty' }, h('p', {}, 'Pick a chest, crate or station on the left to edit what is inside.')));
   };
@@ -625,6 +625,9 @@ function knownEmptySlots(inv) {
   for (let i = 0; i <= top; i++) if (!(String(i) in inv)) out.push(i);
   return out;
 }
+
+// EPlayerCharacterType, stored as meta_data.char_type in character saves.
+const CHARACTER_TYPES = { 0: 'Standard', 1: 'Hardcore', 2: 'Custom', 3: 'Creative' };
 
 const EQUIPMENT = new Set(['Weapon/Tool', 'Armour', 'Shield', 'Jewellery']);
 const FLAG_LABELS = { r: 'retired', g: 'unofficial name', p: 'placeholder name' };
@@ -787,7 +790,7 @@ function jsonEditor(text, save) {
       onclick: guard(() => {
         let parsed;
         try { parsed = parseJson(ta.value); } catch (e) { status.textContent = 'Invalid JSON: ' + e.message; return; }
-        const out = stringifyJson(parsed);
+        const out = stringifyJson(parsed, 0, eolOf(text));
         save(out);
         ta.value = out.replace(/\r\n/g, '\n');
         status.textContent = 'Saved.';
@@ -896,6 +899,21 @@ function viewCharacter() {
           changed('Name updated. Downloads as ' + outputFileName());
           render();
         })), 'The downloaded file is named after the character, as the game expects.') : null,
+        // meta_data.char_type is EPlayerCharacterType (values from the game executable).
+        j.meta_data && 'char_type' in j.meta_data ? field('Character type', h('select', {
+          'aria-label': 'Character type',
+          onchange: guard(e => {
+            const t = Number(e.target.value);
+            j.meta_data.char_type = t;
+            // Keep the hardcore flag consistent with the type.
+            const hc = j.Hardcore ?? r.Hardcore;
+            if (hc) hc.IsHardcore = t === 1;
+            changed('Character type set to ' + CHARACTER_TYPES[t]);
+            render();
+          }),
+        }, Object.entries(CHARACTER_TYPES).map(([v, label]) => h('option', { value: v, selected: Number(v) === num(j.meta_data.char_type) }, label)),
+        !(num(j.meta_data.char_type) in CHARACTER_TYPES) ? h('option', { value: num(j.meta_data.char_type), selected: true }, 'Other (' + num(j.meta_data.char_type) + ')') : null),
+        'Standard characters can join standard worlds. The game marks a character Custom or Creative after it plays a world in that mode.') : null,
         j.Hardcore || r.Hardcore ? field('Hardcore', h('input', {
           type: 'checkbox', checked: !!(j.Hardcore ?? r.Hardcore).IsHardcore,
           onchange: e => { (j.Hardcore ?? r.Hardcore).IsHardcore = e.target.checked; changed('Hardcore ' + (e.target.checked ? 'on' : 'off')); },
@@ -1313,11 +1331,11 @@ function slotPanel(r, templates, commit) {
 }
 
 function viewRaw() {
-  const text = stringifyJson(state.char.json);
+  const text = stringifyJson(state.char.json, 0, state.char.eol);
   return card('Raw JSON', 'The full character file. Saving re-checks the JSON before applying it.',
     jsonEditor(text, out => {
       const json = parseJson(out);
-      state.char = { json, root: json.GameProgress ?? json, loadedName: state.char.loadedName };
+      state.char = { json, root: json.GameProgress ?? json, loadedName: state.char.loadedName, eol: state.char.eol };
       changed('Raw JSON applied');
     }));
 }

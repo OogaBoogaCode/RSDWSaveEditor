@@ -106,8 +106,12 @@ function numText(v) {
   return String(v);
 }
 
-export function stringify(value, indent = 0) {
-  const nl = '\r\n';
+// Line ending of an existing text: older game versions write CRLF, newer ones LF.
+export function eolOf(text) {
+  return /\r\n/.test(text) ? '\r\n' : /\n/.test(text) ? '\n' : '\r\n';
+}
+
+export function stringify(value, indent = 0, nl = '\r\n') {
   const tabs = n => '\t'.repeat(n);
   const scalar = v => (v === null ? 'null' : typeof v === 'boolean' ? String(v) : typeof v === 'string' ? str(v) : numText(v));
   const isContainer = v => v !== null && typeof v === 'object' && !(v instanceof Num);
