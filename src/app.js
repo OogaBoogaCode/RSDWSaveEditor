@@ -914,7 +914,8 @@ function viewCharacter() {
         }, Object.entries(CHARACTER_TYPES).map(([v, label]) => h('option', { value: v, selected: Number(v) === num(j.meta_data.char_type) }, label)),
         !(num(j.meta_data.char_type) in CHARACTER_TYPES) ? h('option', { value: num(j.meta_data.char_type), selected: true }, 'Other (' + num(j.meta_data.char_type) + ')') : null),
         'Standard characters can join standard worlds. The game marks a character Custom or Creative after it plays a world in that mode.') : null,
-        j.Hardcore || r.Hardcore ? field('Hardcore', h('input', {
+        // Hardcore is part of Character type; only files without char_type need the checkbox.
+        (j.Hardcore || r.Hardcore) && !(j.meta_data && 'char_type' in j.meta_data) ? field('Hardcore', h('input', {
           type: 'checkbox', checked: !!(j.Hardcore ?? r.Hardcore).IsHardcore,
           onchange: e => { (j.Hardcore ?? r.Hardcore).IsHardcore = e.target.checked; changed('Hardcore ' + (e.target.checked ? 'on' : 'off')); },
         })) : null,
