@@ -626,8 +626,9 @@ function knownEmptySlots(inv) {
   return out;
 }
 
-// EPlayerCharacterType, stored as meta_data.char_type in character saves.
-const CHARACTER_TYPES = { 0: 'Standard', 1: 'Hardcore', 2: 'Custom', 3: 'Creative' };
+// meta_data.char_type: which worlds a character may join. Verified in game: 0 = standard
+// worlds, 3 = Custom worlds (mutually exclusive). Other values are kept but not offered.
+const CHARACTER_TYPES = { 0: 'Standard', 3: 'Custom' };
 
 const EQUIPMENT = new Set(['Weapon/Tool', 'Armour', 'Shield', 'Jewellery']);
 const FLAG_LABELS = { r: 'retired', g: 'unofficial name', p: 'placeholder name' };
@@ -899,23 +900,19 @@ function viewCharacter() {
           changed('Name updated. Downloads as ' + outputFileName());
           render();
         })), 'The downloaded file is named after the character, as the game expects.') : null,
-        // meta_data.char_type is EPlayerCharacterType (values from the game executable).
+        // meta_data.char_type decides which worlds the character can join.
         j.meta_data && 'char_type' in j.meta_data ? field('Character type', h('select', {
           'aria-label': 'Character type',
           onchange: guard(e => {
             const t = Number(e.target.value);
             j.meta_data.char_type = t;
-            // Keep the hardcore flag consistent with the type.
-            const hc = j.Hardcore ?? r.Hardcore;
-            if (hc) hc.IsHardcore = t === 1;
             changed('Character type set to ' + CHARACTER_TYPES[t]);
             render();
           }),
         }, Object.entries(CHARACTER_TYPES).map(([v, label]) => h('option', { value: v, selected: Number(v) === num(j.meta_data.char_type) }, label)),
         !(num(j.meta_data.char_type) in CHARACTER_TYPES) ? h('option', { value: num(j.meta_data.char_type), selected: true }, 'Other (' + num(j.meta_data.char_type) + ')') : null),
-        'Standard characters can join standard worlds. The game marks a character Custom or Creative after it plays a world in that mode.') : null,
-        // Hardcore is part of Character type; only files without char_type need the checkbox.
-        (j.Hardcore || r.Hardcore) && !(j.meta_data && 'char_type' in j.meta_data) ? field('Hardcore', h('input', {
+        'Standard characters join standard worlds; Custom characters join Custom worlds. A character can only be one of the two.') : null,
+        j.Hardcore || r.Hardcore ? field('Hardcore', h('input', {
           type: 'checkbox', checked: !!(j.Hardcore ?? r.Hardcore).IsHardcore,
           onchange: e => { (j.Hardcore ?? r.Hardcore).IsHardcore = e.target.checked; changed('Hardcore ' + (e.target.checked ? 'on' : 'off')); },
         })) : null,
